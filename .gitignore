@@ -1,0 +1,14 @@
+# Local runtime data and secrets — never commit these.
+config.json
+stock-config.json
+model-review-config.json
+data/
+reports/
+stock-reports/
+stock-data/cache/
+stock-data/*.db
+stock-data/*.log
+stock-data/holdings.json
+.DS_Store
+__pycache__/
+*.pyc

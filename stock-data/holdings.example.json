@@ -1,0 +1,12 @@
+{
+  "as_of": "2026-10-24",
+  "cash": 0,
+  "items": [
+    {
+      "code": "600519",
+      "shares": 100,
+      "cost_price": 1500.0,
+      "note": "示例，可删除；实际持仓请复制为 holdings.json"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "report_dir": "reports",
+  "fund_db": "data/fund_tracker.db",
+  "stock_db": "stock-data/stock_tracker.db",
+  "min_samples": 20,
+  "schedule": {
+    "hour": 20,
+    "minute": 30
+  },
+  "notify": {
+    "macos": true,
+    "webhook_url": "",
+    "webhook_secret": ""
+  }
+}
