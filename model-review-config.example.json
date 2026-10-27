@@ -9,7 +9,7 @@
   },
   "notify": {
     "macos": true,
-    "webhook_url": "",
-    "webhook_secret": ""
+    "webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/YOUR_HOOK_ID",
+    "webhook_secret": "YOUR_SECRET_HERE"
   }
 }

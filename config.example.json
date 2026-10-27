@@ -1,0 +1,72 @@
+{
+  "data_dir": "data",
+  "report_dir": "reports",
+  "holdings_file": "data/holdings.json",
+  "risk_free_rate": 1.5,
+  "request_timeout": 20,
+  "cache_hours": 6,
+  "profile_cache_hours": 168,
+  "stale_days": 5,
+  "max_drawdown_tolerance": 15.0,
+  "alerts": {
+    "daily_move_pct": 2.0,
+    "dd_1y_pct": 8.0,
+    "dd_3y_pct": 15.0,
+    "score_drop": 8.0,
+    "size_min_yi": 2.0,
+    "size_max_yi": 200.0,
+    "manager_change": true,
+    "rank_pct_worse": 50.0,
+    "bond_daily_move_suspicious": 5.0
+  },
+  "notify": {
+    "macos": true,
+    "webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/YOUR_HOOK_ID",
+    "webhook_secret": "YOUR_SECRET_HERE",
+    "full_report": "all"
+  },
+  "schedule": {
+    "hour": 20,
+    "minute": 0
+  },
+  "review": {
+    "enabled": true,
+    "auto": true,
+    "interval_trading_days": 2
+  },
+  "extras_cache_hours": 24,
+  "macro": {
+    "enabled": true,
+    "news_enabled": true,
+    "news_limit": 8
+  },
+  "summary": {
+    "enabled": true,
+    "weekly_enabled": true,
+    "monthly_enabled": true
+  },
+  "ai": {
+    "enabled": true,
+    "usage_scope": "只允许用于本项目的新闻/公告/文章摘要、事实提炼和研究分析；不用于其他用途。",
+    "daily": {
+      "endpoint": "http://127.0.0.1:11436/v1/chat/completions",
+      "model": "qwen3.8:27b",
+      "timeout_seconds": 120,
+      "max_tokens": 1600,
+      "temperature": 0.1,
+      "enable_thinking": false
+    },
+    "weekly": {
+      "enabled": true,
+      "endpoint": "http://127.0.0.1:11434/v1/chat/completions",
+      "model": "deepseek-r1:32b",
+      "timeout_seconds": 240,
+      "max_tokens": 2400,
+      "temperature": 0.1
+    },
+    "max_news": 8,
+    "intro_chars": 500,
+    "max_input_chars": 12000,
+    "release_after_call": true
+  }
+}

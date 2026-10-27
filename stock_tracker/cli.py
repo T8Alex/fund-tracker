@@ -12,6 +12,8 @@ from collections import Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+
+from shared.cli_utils import _parse_date, _fmt, _table, _last_weekday_of_month, _summary_period_key
 from fund_tracker.ai_digest import (
     build_daily_digest,
     build_weekly_digest,
@@ -202,40 +204,6 @@ def _drop_reused_webhook(config: dict) -> bool:
     config.setdefault("notify", {})["webhook_url"] = ""
     return True
 
-
-def _parse_date(value: str | None) -> date:
-    if not value:
-        return date.today()
-    return datetime.strptime(value, "%Y-%m-%d").date()
-
-
-def _fmt(value, digits: int = 2) -> str:
-    if value is None:
-        return "—"
-    return f"{value:.{digits}f}"
-
-
-def _table(headers: list[str], rows: list[list[str]]) -> str:
-    widths = [len(header) for header in headers]
-    for row in rows:
-        for index, cell in enumerate(row):
-            widths[index] = max(widths[index], len(str(cell)))
-    lines = []
-    lines.append(
-        " | ".join(
-            header.ljust(widths[index]) for index, header in enumerate(headers)
-        )
-    )
-    lines.append("-+-".join("-" * width for width in widths))
-    for row in rows:
-        lines.append(
-            " | ".join(
-                str(cell).ljust(widths[index]) for index, cell in enumerate(row)
-            )
-        )
-    return "\n".join(lines)
-
-
 def _weight(value: float | None) -> float | None:
     if value is None:
         return None
@@ -278,25 +246,6 @@ def _review_due_info(
         date.fromisoformat(run_date_text) - timedelta(days=7)
     ).isoformat()
     return True, period_start, interval, interval, None
-
-
-def _last_weekday_of_month(value: date) -> date:
-    if value.month == 12:
-        first_next = date(value.year + 1, 1, 1)
-    else:
-        first_next = date(value.year, value.month + 1, 1)
-    result = first_next - timedelta(days=1)
-    while result.weekday() >= 5:
-        result -= timedelta(days=1)
-    return result
-
-
-def _summary_period_key(kind: str, value: date) -> str:
-    if kind == "weekly":
-        iso = value.isocalendar()
-        return f"{iso.year}-W{iso.week:02d}"
-    return f"{value.year}-{value.month:02d}"
-
 
 def _save_daily(report_dir: Path, run_date: str, content: str) -> Path:
     report_dir.mkdir(parents=True, exist_ok=True)

@@ -81,31 +81,8 @@ SEVERE_ALERT_WORDS = (
     "ST",
 )
 
-ACTION_ORDER = {
-    "分批买入/持有": 0,
-    "小仓试探": 1,
-    "持有": 2,
-    "观察": 3,
-    "复核": 4,
-    "减仓/复核": 5,
-    "止盈/减仓": 6,
-    "出货/复核": 7,
-    "剔除": 8,
-}
 
-
-def fmt_pct(value: float | None, signed: bool = True, digits: int = 2) -> str:
-    if value is None:
-        return "—"
-    prefix = "+" if signed and value > 0 else ""
-    return f"{prefix}{value:.{digits}f}%"
-
-
-def fmt_num(value: float | None, digits: int = 2) -> str:
-    if value is None:
-        return "—"
-    return f"{value:.{digits}f}"
-
+from shared.format_utils import ACTION_ORDER, fmt_pct, fmt_num, _weight_text, _period_return
 
 def fmt_money(value: float | None, signed: bool = False) -> str:
     if value is None:
@@ -116,19 +93,6 @@ def fmt_money(value: float | None, signed: bool = False) -> str:
 
 def _cell(value: Any) -> str:
     return str(value if value is not None else "").replace("|", "/").replace("\n", " ")
-
-
-def _weight_text(value: float | None, missing: str = "—") -> str:
-    if value is None:
-        return missing
-    return f"{float(value) * 100:.1f}%"
-
-
-def _period_return(row: dict) -> float | None:
-    value = row.get("ret_window")
-    if value is not None:
-        return value
-    return row.get("ret_5d")
 
 
 def _score_delta(row: dict) -> float | None:
@@ -146,7 +110,6 @@ def _period_text(row: dict) -> str:
     if days == 2:
         return "2 日"
     return f"{days} 个交易日"
-
 
 def _evidence_for(row: dict, evidence: dict | None) -> dict:
     if not evidence:
