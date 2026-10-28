@@ -75,7 +75,7 @@ commit `0d33901`，已完成：
 
 目标：让系统“坏了有人知道、数据丢了能恢复”。
 
-- [x] 初始化 git 仓库并推送 GitHub 私有仓库（`a83235d` v0.1.0 + `0d33901` Phase 0.5）；`v0.1.0` 标签尚未打
+- [x] 初始化 git 仓库并推送 GitHub 私有仓库（`a83235d` v0.1.0 + `0d33901` Phase 0.5）；标签 `v0.1.0` 已于 2026-10-28 补打
 - [x] 自动备份（`shared/backup.py` + `scripts/backup.py`）：
   - SQLite 用 `.backup` API 复制，不直接拷贝写入中的 DB（基金/股票两库）
   - 同时备份 `holdings.json`、三个 config、仓库 `run_daily.sh`、`scripts/`、全部 5 个 launchd plist 和部署 wrapper（存到归档 `outside/…`）
