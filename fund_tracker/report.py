@@ -974,6 +974,75 @@ def _data_error_section(errors: list[str]) -> str:
     return "\n".join(lines)
 
 
+def _freshness_warnings(
+    rows: list[dict],
+    holdings: dict | None,
+    *,
+    stale_days_threshold: int = 5,
+    holdings_stale_days_threshold: int = 7,
+) -> list[str]:
+    """Return report-banner lines for data freshness issues, or [] if all good."""
+    from datetime import date as _date
+    warnings: list[str] = []
+
+    # --- Holdings freshness ---
+    if holdings is None or not holdings.get("loaded"):
+        warnings.append(
+            "> **持仓未录入**：`data/holdings.json` 为空；"
+            "填入后才会出现\u201c继续持有/减仓/出货\u201d，否则只按目标权重判断。"
+        )
+    else:
+        as_of = holdings.get("as_of")
+        if as_of:
+            try:
+                days_since = (_date.today() - _date.fromisoformat(as_of)).days
+                if days_since > holdings_stale_days_threshold:
+                    warnings.append(
+                        f"> **持仓数据已过期 {days_since} 天**（截至 {as_of}）；"
+                        "建议更新 `data/holdings.json` 以得到准确的实际权重。"
+                    )
+            except (ValueError, TypeError):
+                warnings.append("> **持仓日期格式异常**，无法校验新鲜度。")
+        else:
+            warnings.append("> **持仓缺少日期**（`as_of` 字段为空）；请检查 `data/holdings.json`。")
+
+    # --- NAV freshness ---
+    stale_count = 0
+    stale_examples: list[str] = []
+    for row in rows:
+        nav_date = row.get("nav_date")
+        if not nav_date:
+            stale_count += 1
+            if len(stale_examples) < 3:
+                stale_examples.append(row.get("code") or row.get("name", "?"))
+            continue
+        try:
+            days = (_date.today() - _date.fromisoformat(nav_date)).days
+            if days > stale_days_threshold:
+                stale_count += 1
+                if len(stale_examples) < 3:
+                    stale_examples.append(f"{row.get('code')}（{nav_date}，{days} 天）")
+        except (ValueError, TypeError):
+            stale_count += 1
+
+    if stale_count:
+        pct = stale_count / max(len(rows), 1) * 100
+        examples = ", ".join(stale_examples)
+        if stale_count >= len(rows):
+            warnings.append(
+                f"> **所有基金净值均超 {stale_days_threshold} 天未更新**；"
+                "报告无法生成有效结论，请检查数据源。"
+            )
+        else:
+            warnings.append(
+                f"> **{stale_count} 只（{pct:.0f}%）基金净值已超 {stale_days_threshold} 天未更新**"
+                f"（示例：{examples}）；"
+                "低分标的可能因数据缺失而失真，请核对后再操作。"
+            )
+
+    return warnings
+
+
 def _rules_section(heading: str = "## 九、规则说明") -> str:
     return "\n".join(
         [
@@ -1099,8 +1168,8 @@ def generate_daily_report(
 ) -> str:
     enriched = enrich_rows(rows, alerts, evidence)
     next_date = next_review_date or next_trading_date(run_date, 2)
-    price_dates = [str(row.get("price_date")) for row in rows if row.get("price_date")]
-    as_of = max(price_dates) if price_dates else "—"
+    nav_dates = [str(row.get("nav_date")) for row in rows if row.get("nav_date")]
+    as_of = max(nav_dates) if nav_dates else "—"
     lines = [
         f"# 基金追踪日报 · {run_date}",
         "",
@@ -1112,6 +1181,9 @@ def generate_daily_report(
         "",
         _market_table(market),
     ]
+    _fw = _freshness_warnings(rows, holdings or {})
+    if _fw:
+        lines.extend(_fw)
     if macro_section:
         lines.append(macro_section)
     else:
@@ -1184,7 +1256,7 @@ def generate_review(
         "",
         "> 模块：基金追踪（独立于基金）。",
         f"> 覆盖区间：{period_start} → {period_end}（约 {window_days} 个交易日）。",
-        f"> 行情数据截至 {max([str(r.get('price_date')) for r in rows if r.get('price_date')] or ['—'])}；"
+        f"> 行情数据截至 {max([str(r.get('nav_date')) for r in rows if r.get('nav_date')] or ['—'])}；"
         "若报告日无新行情，动作按最近交易日顺延。",
         "> 本报告按机械规则生成，参考区间不是预测，不构成投资建议，也不保证收益。",
         "",
@@ -1192,6 +1264,9 @@ def generate_review(
         "",
         _period_market_table(market, f"{window_days} 日"),
     ]
+    _fw = _freshness_warnings(rows, holdings or {})
+    if _fw:
+        lines.extend(_fw)
     if macro_section:
         lines.append(macro_section)
     else:
@@ -1297,7 +1372,7 @@ def generate_summary_report(
         "",
         "> 模块：基金追踪（独立于基金）。",
         f"> 覆盖区间：{period_start} → {period_end}（{period_label}；按交易日计算，遇长假顺延）。",
-        f"> 行情数据截至 {max([str(r.get('price_date')) for r in rows if r.get('price_date')] or ['—'])}；"
+        f"> 行情数据截至 {max([str(r.get('nav_date')) for r in rows if r.get('nav_date')] or ['—'])}；"
         "若报告日无新行情，动作按最近交易日顺延。",
         "> 本报告按机械规则生成，参考区间不是预测，不构成投资建议，也不保证收益。",
         "",
@@ -1305,6 +1380,9 @@ def generate_summary_report(
         "",
         _period_market_table(market, period_label),
     ]
+    _fw = _freshness_warnings(rows, holdings or {})
+    if _fw:
+        lines.extend(_fw)
     if macro_section:
         lines.append(macro_section)
     else:
