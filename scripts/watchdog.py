@@ -37,14 +37,14 @@ TZ = ZoneInfo("Asia/Shanghai")
 LEDGER = BASE / "data/run_ledger.jsonl"
 
 CUTOFFS = {
-    "stock": dt_time(19, 12),
-    "fund": dt_time(20, 12),
+    "stock": dt_time(17, 12),
+    "fund": dt_time(21, 12),
     "model": dt_time(20, 50),
-    "backup": dt_time(20, 20),
+    "backup": dt_time(18, 50),
 }
 JOB_LABEL = {
-    "stock": ("股票任务", "19:00"),
-    "fund": ("基金任务", "20:00"),
+    "stock": ("股票任务", "17:00"),
+    "fund": ("基金任务", "21:00"),
     "model": ("模型复盘", "20:30"),
     "backup": ("备份任务", "18:45"),
 }

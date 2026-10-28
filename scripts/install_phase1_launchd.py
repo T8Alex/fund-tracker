@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deploy Phase 1 launchd jobs: backup (18:45) + watchdog (19:20/20:20/20:50).
+"""Deploy Phase 1 launchd jobs: backup (18:45) + watchdog (17:15/18:55/20:55/21:15).
 
 Idempotent: rerunning replaces the same labels. Existing wrapper files are
 backed up in place before being rewritten. Run from the repo root:
@@ -162,7 +162,7 @@ def main() -> int:
     watchdog_plist = write_plist(
         "com.t8alex.runwatch",
         deployed["watchdog"],
-        [(19, 20), (20, 20), (20, 50)],
+        [(17, 15), (18, 55), (20, 55), (21, 15)],
         HOME / ".local/share/fund-tracker/launchd.watchdog.log",
     )
     print(f"plist 备份任务 {backup_plist}")

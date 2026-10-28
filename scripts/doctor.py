@@ -31,11 +31,11 @@ from shared.trading_calendar import holidays_coverage, trading_days_between  # n
 HOME = Path.home()
 
 LAUNCHD_JOBS = {
-    "com.t8alex.fundtracker": "基金 20:00 工作日",
-    "com.t8alex.stocktracker": "股票 19:00 工作日",
+    "com.t8alex.fundtracker": "基金 21:00 工作日",
+    "com.t8alex.stocktracker": "股票 17:00 工作日",
     "com.t8alex.modelreview": "模型复盘 20:30 工作日",
     "com.t8alex.fundbackup": "备份 18:45 工作日",
-    "com.t8alex.runwatch": "运行监控 19:20/20:20/20:50 工作日",
+    "com.t8alex.runwatch": "运行监控 17:15/18:55/20:55/21:15 工作日",
 }
 
 

@@ -52,14 +52,14 @@ class WatchTest(unittest.TestCase):
         self.assertEqual(evaluate_watch(saturday, facts), [])
 
     def test_before_cutoff_no_alerts(self) -> None:
-        # 19:05 is before the stock cutoff; nothing has run yet — no alerts.
-        self.assertEqual(evaluate_watch(_dt(28, 19, 5), ok_facts()), [])
-        self.assertEqual(evaluate_watch(_dt(28, 19, 5), {"stock": {}, "fund": {}}), [])
+        # 16:55 is before the stock cutoff; nothing has run yet — no alerts.
+        self.assertEqual(evaluate_watch(_dt(28, 16, 55), ok_facts()), [])
+        self.assertEqual(evaluate_watch(_dt(28, 16, 55), {"stock": {}, "fund": {}}), [])
 
     def test_missing_stock_run_after_cutoff(self) -> None:
         facts = ok_facts()
         facts["stock"] = {"has_run_today": False}
-        alerts = evaluate_watch(_dt(28, 19, 15), facts)
+        alerts = evaluate_watch(_dt(28, 17, 15), facts)
         self.assertEqual(len(alerts), 1)
         self.assertEqual(alerts[0]["job"], "stock")
         self.assertEqual(alerts[0]["severity"], "high")
@@ -67,20 +67,20 @@ class WatchTest(unittest.TestCase):
     def test_missing_fund_run_after_cutoff(self) -> None:
         facts = ok_facts()
         facts["fund"] = {"has_run_today": False}
-        alerts = evaluate_watch(_dt(28, 20, 15), facts)
+        alerts = evaluate_watch(_dt(28, 21, 15), facts)
         self.assertEqual([a["job"] for a in alerts], ["fund"])
 
     def test_push_failure_alerts_only_when_webhook_used(self) -> None:
         facts = ok_facts()
         facts["fund"] = {"has_run_today": True, "notify_ok": False}
-        alerts = evaluate_watch(_dt(28, 20, 15), facts)
+        alerts = evaluate_watch(_dt(28, 21, 15), facts)
         self.assertEqual([a["job"] for a in alerts], ["fund"])
         # notify_ok=None (e.g. webhook not configured) must NOT alert.
         facts["fund"] = {"has_run_today": True, "notify_ok": None}
-        self.assertEqual(evaluate_watch(_dt(28, 20, 15), facts), [])
+        self.assertEqual(evaluate_watch(_dt(28, 21, 15), facts), [])
 
     def test_all_ok_no_alerts(self) -> None:
-        self.assertEqual(evaluate_watch(_dt(28, 20, 45), ok_facts()), [])
+        self.assertEqual(evaluate_watch(_dt(28, 21, 15), ok_facts()), [])
 
     def test_model_not_last_weekday_alerts_without_skip_record(self) -> None:
         facts = ok_facts()
@@ -119,10 +119,10 @@ class WatchTest(unittest.TestCase):
         alerts = evaluate_watch(_dt(28, 20, 25), facts)
         self.assertEqual([a["job"] for a in alerts], ["backup"])
 
-    def test_backup_check_silent_before_2020(self) -> None:
+    def test_backup_check_silent_before_1815(self) -> None:
         facts = ok_facts()
         facts["backup"] = {"latest_ts": None}
-        self.assertEqual(evaluate_watch(_dt(28, 19, 30), facts), [])
+        self.assertEqual(evaluate_watch(_dt(28, 18, 30), facts), [])
 
     def test_stale_data_alerts_after_three_days(self) -> None:
         facts = ok_facts()
@@ -138,7 +138,7 @@ class WatchTest(unittest.TestCase):
 
     def test_missing_run_on_market_holiday_weekday_is_silent(self) -> None:
         # 2026-02-16（周一）是春节休市日：任务没跑不算故障
-        holiday = datetime(2026, 2, 16, 19, 15, tzinfo=TZ)
+        holiday = datetime(2026, 2, 16, 17, 15, tzinfo=TZ)
         facts = ok_facts(day=28)
         facts["stock"] = {"has_run_today": False}
         facts["fund"] = {"has_run_today": False}
@@ -148,7 +148,7 @@ class WatchTest(unittest.TestCase):
         # 同样配置放到正常交易日（10-28 周三）应报警，保证上面不是假阴性
         facts = ok_facts(day=28)
         facts["stock"] = {"has_run_today": False}
-        alerts = evaluate_watch(_dt(28, 19, 15), facts)
+        alerts = evaluate_watch(_dt(28, 17, 15), facts)
         self.assertEqual([a["job"] for a in alerts], ["stock"])
 
     def test_custom_cutoffs_respected(self) -> None:
@@ -161,7 +161,7 @@ class WatchTest(unittest.TestCase):
     def test_alerts_are_dicts_with_expected_keys(self) -> None:
         facts = ok_facts()
         facts["stock"] = {}
-        alerts = evaluate_watch(_dt(28, 19, 15), facts)
+        alerts = evaluate_watch(_dt(28, 17, 15), facts)
         for alert in alerts:
             self.assertIn("job", alert)
             self.assertIn("severity", alert)
