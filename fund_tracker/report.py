@@ -8,33 +8,20 @@ from typing import Any
 LEVEL_LABEL = {"high": "高", "warn": "中", "info": "提示"}
 
 
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 from fund_tracker.evidence import evidence_for
+from shared.trading_calendar import next_weekday_date as _next_weekday_date
+from shared.trading_calendar import next_month_last_weekday as _next_month_last
 
 
 def next_weekday_date(start_date, trading_days):
-    current = date.fromisoformat(start_date)
-    added = 0
-    while added < max(1, trading_days):
-        current += timedelta(days=1)
-        if current.weekday() < 5:
-            added += 1
-    return current.isoformat()
+    """报告层语义：horizon 0 也至少前进一个工作日（历史行为，见 trading_calendar 注释）。"""
+    return _next_weekday_date(start_date, trading_days, at_least_one=True)
 
 
 def next_month_last_weekday(start_date):
-    current = date.fromisoformat(start_date)
-    year = current.year + (1 if current.month == 12 else 0)
-    month = 1 if current.month == 12 else current.month + 1
-    if month == 12:
-        first_after = date(year + 1, 1, 1)
-    else:
-        first_after = date(year, month + 1, 1)
-    last = first_after - timedelta(days=1)
-    while last.weekday() >= 5:
-        last -= timedelta(days=1)
-    return last.isoformat()
+    return _next_month_last(date.fromisoformat(start_date)).isoformat()
 
 
 RECOMMENDATION_GROUPS = [

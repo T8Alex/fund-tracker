@@ -26,6 +26,7 @@ from fund_tracker.notify import macos_notify, webhook_notify  # noqa: E402
 
 from shared.run_ledger import RunLedger, events_for_day  # noqa: E402
 from shared.backup import DEFAULT_DEST  # noqa: E402
+from shared.trading_calendar import is_last_weekday, is_weekend  # noqa: E402
 
 TZ = ZoneInfo("Asia/Shanghai")
 LEDGER = BASE / "data/run_ledger.jsonl"
@@ -44,20 +45,10 @@ JOB_LABEL = {
 }
 
 
-def _is_last_weekday(day: date) -> bool:
-    year = day.year + (1 if day.month == 12 else 0)
-    month = 1 if day.month == 12 else day.month + 1
-    first_next_month = date(year, month, 1)
-    last = first_next_month - timedelta(days=1)
-    while last.weekday() >= 5:
-        last -= timedelta(days=1)
-    return day == last
-
-
 def evaluate_watch(now: datetime, facts: dict, *, cutoffs: dict | None = None) -> list[dict]:
     """Return the alert list for this moment. Pure — safe for tests."""
     cutoffs = cutoffs or CUTOFFS
-    if now.weekday() >= 5:
+    if is_weekend(now.date()):
         return []
     alerts: list[dict] = []
     for job in ("stock", "fund"):
@@ -90,7 +81,7 @@ def evaluate_watch(now: datetime, facts: dict, *, cutoffs: dict | None = None) -
             )
     model_state = facts.get("model") or {}
     if now.time() >= cutoffs["model"]:
-        if _is_last_weekday(now.date()) and not model_state.get("run_ok"):
+        if is_last_weekday(now.date()) and not model_state.get("run_ok"):
             alerts.append(
                 {
                     "job": "model",
@@ -98,7 +89,7 @@ def evaluate_watch(now: datetime, facts: dict, *, cutoffs: dict | None = None) -
                     "message": "今天应是模型复盘日（本月最后一个工作日），但没有生成复盘报告。",
                 }
             )
-        elif not _is_last_weekday(now.date()) and not model_state.get("run_ok") and not model_state.get("skipped"):
+        elif not is_last_weekday(now.date()) and not model_state.get("run_ok") and not model_state.get("skipped"):
             alerts.append(
                 {
                     "job": "model",

@@ -111,10 +111,11 @@ commit `0d33901`，已完成：
 目标：先把“日期、现金、数据新鲜度”这三个口径修对，不碰交易流水。
 
 - [ ] 交易日历：
-  - 建立共享 `trading_calendar` 模块
-  - 2/5/20 日回填按 A 股交易日，不再只跳周末
-  - 股票/基金任务在法定节假日不生成“新报告”，或明确标注“非交易日”
-  - 周报/月报的“最后一个工作日”是否改为“最后一个交易日”，单独确认
+  - [x] 纯重构（2026-10-28，独立提交）：建立共享 `shared/trading_calendar.py`，一处收拢全部重复的日期助手：`next_weekday_date`（learning 0=当天 / report 至少进 1 天，用 `at_least_one` 保留两种历史语义）、`last_weekday_of_month`/`is_last_weekday`/`next_month_last_weekday`（model_review、cli_utils、report 三处零散实现合并）、`count_trading_days_since` 的 SQL（`count_distinct_dates_since`，nav/prices 白名单）、`macro._last_weekdays`、watchdog 的月末判断；行为零变化（旧测试 158 + 新等价测试 26，共 184 全绿）
+  - 0 日 horizon 语义待统一（属行为变更，下一步做）：推荐 horizon 0 = 停留在当天（learning 版）；report 版的 `max(1,…)` 是历史上掩盖漂移的防御写法，由 A 股日历变更时一并收拢
+  - [ ] 2/5/20 日回填按 A 股交易日，不再只跳周末
+  - [ ] 股票/基金任务在法定节假日不生成“新报告”，或明确标注“非交易日”
+  - [ ] 周报/月报的“最后一个工作日”是否改为“最后一个交易日”，单独确认
 - [ ] 现金口径统一：
   - 目标权重和实际权重都按“总资金（含现金）”计算
   - 或者同时给出“含现金”和“仅投资金”两套口径，并明确标注

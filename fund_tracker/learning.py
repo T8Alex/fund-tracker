@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
 from statistics import mean
 from typing import Callable, Iterable, Sequence
+
+from shared.trading_calendar import next_weekday_date as _core_next_weekday_date
 
 HORIZONS = (2, 5, 20)
 
@@ -55,14 +57,11 @@ def ensure_learning_schema(connection: sqlite3.Connection) -> None:
 
 
 def next_weekday_date(start_date: str, trading_days: int) -> str:
-    """Approximate a trading-day horizon by skipping weekends only."""
-    current = date.fromisoformat(str(start_date))
-    remaining = max(0, int(trading_days))
-    while remaining:
-        current += timedelta(days=1)
-        if current.weekday() < 5:
-            remaining -= 1
-    return current.isoformat()
+    """Approximate a trading-day horizon by skipping weekends only.
+
+    学习层语义：horizon 0 停留在 start_date 当天（见 trading_calendar 注释）。
+    """
+    return _core_next_weekday_date(start_date, trading_days)
 
 
 def _as_float(value) -> float | None:

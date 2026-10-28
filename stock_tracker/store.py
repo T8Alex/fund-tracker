@@ -6,6 +6,7 @@ import sqlite3
 from pathlib import Path
 
 from fund_tracker.learning import ensure_learning_schema
+from shared.trading_calendar import count_distinct_dates_since
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS stocks (
@@ -343,14 +344,7 @@ class Database:
 
     def count_trading_days_since(self, start_date: str, end_date: str) -> int:
         with self._connect() as connection:
-            row = connection.execute(
-                """
-                SELECT COUNT(DISTINCT date) AS days FROM prices
-                WHERE date > ? AND date <= ?
-                """,
-                (start_date, end_date),
-            ).fetchone()
-        return int(row["days"]) if row else 0
+            return count_distinct_dates_since(connection, "prices", start_date, end_date)
 
     def latest_price_date(self) -> str | None:
         with self._connect() as connection:

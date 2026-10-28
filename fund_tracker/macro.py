@@ -6,10 +6,12 @@ import json
 import logging
 import re
 import xml.etree.ElementTree as ET
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any
 from urllib.parse import urlencode
+
+from shared.trading_calendar import last_n_weekdays
 
 from .fetch import (
     INDEX_SECIDS,
@@ -126,13 +128,7 @@ def _fmt_yield(value: float | None, digits: int = 3) -> str:
 
 
 def _last_weekdays(count: int = 12) -> list[date]:
-    days: list[date] = []
-    current = date.today()
-    while len(days) < count:
-        if current.weekday() < 5:
-            days.append(current)
-        current -= timedelta(days=1)
-    return list(reversed(days))
+    return last_n_weekdays(count)
 
 
 def _parse_sina_quote(symbol: str, payload: str) -> dict | None:

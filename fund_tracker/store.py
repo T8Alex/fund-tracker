@@ -5,6 +5,8 @@ import json
 import sqlite3
 from pathlib import Path
 
+from shared.trading_calendar import count_distinct_dates_since
+
 from .learning import ensure_learning_schema
 
 SCHEMA = """
@@ -303,14 +305,7 @@ class Database:
 
     def count_trading_days_since(self, start_date: str, end_date: str) -> int:
         with self._connect() as connection:
-            row = connection.execute(
-                """
-                SELECT COUNT(DISTINCT date) AS days FROM nav
-                WHERE date > ? AND date <= ?
-                """,
-                (start_date, end_date),
-            ).fetchone()
-        return int(row["days"]) if row else 0
+            return count_distinct_dates_since(connection, "nav", start_date, end_date)
 
     def get_snapshot_on_or_before(self, code: str, end_date: str) -> dict | None:
         with self._connect() as connection:

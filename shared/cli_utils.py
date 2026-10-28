@@ -4,8 +4,10 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
+
+from shared.trading_calendar import last_weekday_of_month as _last_weekday_of_month
 
 LAUNCHD_LABEL = "com.t8alex.fundtracker"
 LAUNCHD_LABEL_STOCK = "com.t8alex.stocktracker"
@@ -44,18 +46,6 @@ def _table(headers: list[str], rows: list[list[str]]) -> str:
         cells = [str(c).ljust(col_widths[i]) for i, c in enumerate(row)]
         lines.append(" | ".join(cells))
     return "\n".join(lines)
-
-
-def _last_weekday_of_month(value: date) -> date:
-    """Return the last weekday (Mon–Fri) of the given month."""
-    if value.month == 12:
-        first_next = date(value.year + 1, 1, 1)
-    else:
-        first_next = date(value.year, value.month + 1, 1)
-    result = first_next - timedelta(days=1)
-    while result.weekday() >= 5:
-        result -= timedelta(days=1)
-    return result
 
 
 def _summary_period_key(kind: str, value: date) -> str:

@@ -6,7 +6,8 @@ import unittest
 from datetime import datetime, time as dt_time
 from zoneinfo import ZoneInfo
 
-from scripts.watchdog import CUTOFFS, _is_last_weekday, evaluate_watch
+from scripts.watchdog import CUTOFFS, evaluate_watch
+from shared.trading_calendar import is_last_weekday
 
 TZ = ZoneInfo("Asia/Shanghai")
 
@@ -32,16 +33,16 @@ def ok_facts(day: int = 28) -> dict:
 class IsLastWeekdayTest(unittest.TestCase):
     def test_friday_oct_30_2026(self) -> None:
         # 2026-10-31 is a Saturday, so the last weekday is Friday 2026-10-30.
-        self.assertTrue(_is_last_weekday(_dt(30).date()))
-        self.assertFalse(_is_last_weekday(_dt(29).date()))
-        self.assertFalse(_is_last_weekday(_dt(31).date()))
+        self.assertTrue(is_last_weekday(_dt(30).date()))
+        self.assertFalse(is_last_weekday(_dt(29).date()))
+        self.assertFalse(is_last_weekday(_dt(31).date()))
 
     def test_nov_30_2026_is_monday_last_weekday(self) -> None:
-        self.assertTrue(_is_last_weekday(datetime(2026, 11, 30, tzinfo=TZ).date()))
+        self.assertTrue(is_last_weekday(datetime(2026, 11, 30, tzinfo=TZ).date()))
 
     def test_december_wraps_year(self) -> None:
         # 2026-12-31 is a Thursday → last weekday of December 2026.
-        self.assertTrue(_is_last_weekday(datetime(2026, 12, 31, tzinfo=TZ).date()))
+        self.assertTrue(is_last_weekday(datetime(2026, 12, 31, tzinfo=TZ).date()))
 
 
 class WatchTest(unittest.TestCase):

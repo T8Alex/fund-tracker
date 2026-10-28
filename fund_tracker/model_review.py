@@ -4,7 +4,7 @@ import argparse
 import json
 import sqlite3
 from copy import deepcopy
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 from statistics import mean
 from typing import Any
@@ -20,6 +20,7 @@ from fund_tracker.store import Database as FundDatabase
 from stock_tracker.store import Database as StockDatabase
 
 from shared.run_ledger import RunLedger
+from shared.trading_calendar import is_last_weekday, last_weekday_of_month
 
 CONFIG_PATH = BASE_DIR / "model-review-config.json"
 DEFAULT_CONFIG: dict[str, Any] = {
@@ -63,21 +64,6 @@ def load_config(path: Path | None = None) -> dict:
 def resolve_path(value: str | Path) -> Path:
     path = Path(value)
     return path if path.is_absolute() else BASE_DIR / path
-
-
-def last_weekday_of_month(day: date) -> date:
-    if day.month == 12:
-        first_next = date(day.year + 1, 1, 1)
-    else:
-        first_next = date(day.year, day.month + 1, 1)
-    last = first_next - timedelta(days=1)
-    while last.weekday() >= 5:
-        last -= timedelta(days=1)
-    return last
-
-
-def is_last_weekday(day: date) -> bool:
-    return day == last_weekday_of_month(day)
 
 
 def _as_float(value: Any) -> float | None:
