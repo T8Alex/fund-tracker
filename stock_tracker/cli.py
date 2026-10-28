@@ -56,6 +56,8 @@ from .report import (
 )
 from .store import Database
 
+from shared.run_ledger import RunLedger
+
 LOG = logging.getLogger(__name__)
 LAUNCHD_LABEL = "com.t8alex.stocktracker"
 LAUNCHD_DIR = Path.home() / ".local" / "share" / "stock-tracker"
@@ -1023,6 +1025,10 @@ def cmd_run(args: argparse.Namespace) -> int:
     run_date = _parse_date(args.date)
     run_date_text = run_date.isoformat()
     database = _db(config)
+    _run_started = time.monotonic()
+    # 台账与基金共用 data/run_ledger.jsonl，便于 watchdog 只读一处
+    _ledger_path = BASE_DIR / "data" / "run_ledger.jsonl"
+    RunLedger(_ledger_path).record(job="stock-run", event="start")
     stocks = database.list_stocks()
     if not stocks:
         print("股票跟踪列表为空。先运行：python3 -m stock_tracker add 600519 --weight 0.10")
@@ -1122,11 +1128,26 @@ def cmd_run(args: argparse.Namespace) -> int:
     database.save_run(run_date_text, status, summary)
 
     full_report_mode = _full_report_mode(config)
+    notify_cfg = config.get("notify") or {}
+    webhook_configured = bool((notify_cfg.get("webhook_url") or "").strip())
+    sent = False
     if not args.no_notify:
         if full_report_mode == "all":
-            notify_report(config, "股票追踪日报", summary, report)
+            sent = notify_report(config, "股票追踪日报", summary, report)
         else:
-            notify(config, "股票追踪日报", summary)
+            sent = notify(config, "股票追踪日报", summary)
+    price_dates = [str(row["price_date"]) for row in rows if row.get("price_date")]
+    RunLedger(_ledger_path).record(
+        job="stock-run",
+        event="done",
+        status=status,
+        report_path=str(report_path),
+        notify={"sent": bool(sent), "webhook": webhook_configured},
+        counts={"rows": len(rows), "alerts": len(all_alerts), "errors": len(errors)},
+        errors=errors,
+        data_date=max(price_dates, default=None),
+        duration_ms=int((time.monotonic() - _run_started) * 1000),
+    )
 
     if rows and config.get("review", {}).get("auto", True):
         try:

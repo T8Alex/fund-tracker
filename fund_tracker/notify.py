@@ -64,6 +64,32 @@ def feishu_sign(secret: str, timestamp: str) -> str:
     return base64.b64encode(digest).decode("utf-8")
 
 
+RETRY_ATTEMPTS = 3
+RETRY_SLEEP_BASE = 2.0
+
+
+def _post_json_retry(
+    url: str,
+    payload: dict,
+    *,
+    attempts: int = RETRY_ATTEMPTS,
+    timeout: int = 10,
+    sleep_for=None,
+):
+    """POST with retries; returns (response, attempt). Raises on exhaustion."""
+    sleep = sleep_for or time.sleep
+    last_error: Exception | None = None
+    for attempt in range(1, max(1, attempts) + 1):
+        try:
+            return requests.post(url, json=payload, timeout=timeout), attempt
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            if attempt < attempts:
+                LOG.warning("通知第 %d/%d 次发送失败：%s", attempt, attempts, exc)
+                sleep(RETRY_SLEEP_BASE * attempt)
+    raise ConnectionError(f"重试 {attempts} 次后仍失败：{last_error}")
+
+
 def _feishu_post(url: str, payload: dict, secret: str = "") -> bool:
     if secret:
         timestamp = str(int(time.time()))
@@ -72,7 +98,7 @@ def _feishu_post(url: str, payload: dict, secret: str = "") -> bool:
         payload["sign"] = feishu_sign(secret, timestamp)
 
     try:
-        response = requests.post(url, json=payload, timeout=10)
+        response, _attempt = _post_json_retry(url, payload)
         response.raise_for_status()
         try:
             data = response.json()
@@ -304,10 +330,9 @@ def feishu_card_notify(
 
 def generic_webhook_notify(url: str, title: str, message: str) -> bool:
     try:
-        response = requests.post(
+        response, _attempt = _post_json_retry(
             url,
-            json={"title": title, "body": message, "text": f"{title}\n{message}"},
-            timeout=10,
+            {"title": title, "body": message, "text": f"{title}\n{message}"},
         )
         response.raise_for_status()
         return True

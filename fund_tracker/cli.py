@@ -76,6 +76,8 @@ from .report import (
 )
 from .store import Database
 
+from shared.run_ledger import RunLedger
+
 LOG = logging.getLogger(__name__)
 LAUNCHD_LABEL = "com.t8alex.fundtracker"
 # launchd does not reliably pass non-ASCII paths on macOS. Keep a small ASCII
@@ -1101,6 +1103,9 @@ def cmd_run(args: argparse.Namespace) -> int:
     run_date = _parse_date(args.date)
     run_date_text = run_date.isoformat()
     database = _db(config)
+    _run_started = time.monotonic()
+    _ledger_path = BASE_DIR / config.get("data_dir", "data") / "run_ledger.jsonl"
+    RunLedger(_ledger_path).record(job="fund-run", event="start")
     funds = database.list_funds()
     if not funds:
         print("跟踪列表为空。先运行：python3 -m fund_tracker add 000032")
@@ -1240,21 +1245,39 @@ def cmd_run(args: argparse.Namespace) -> int:
         BASE_DIR / config["report_dir"] / f"{run_date_text}.csv",
         run_date_text,
     )
+    enriched_rows = _enrich_recommendations(rows, alerts_by_code, evidence)
     summary = summary_text(
         run_date_text,
-        rows,
+        enriched_rows,
         all_alerts,
-        report_path,
+        str(report_path),
         holdings=holdings,
     )
     status = "ok" if not errors else ("partial" if rows else "failed")
     database.save_run(run_date_text, status, summary)
+
     full_report_mode = _full_report_mode(config)
+    notify_cfg = config.get("notify") or {}
+    webhook_configured = bool((notify_cfg.get("webhook_url") or "").strip())
+    sent = False
     if not args.no_notify:
         if full_report_mode == "all":
-            notify_report(config, "基金跟踪日报", summary, report)
+            sent = notify_report(config, "基金跟踪日报", summary, report)
         else:
-            notify(config, "基金跟踪日报", summary)
+            sent = notify(config, "基金跟踪日报", summary)
+
+    nav_dates = [str(row["nav_date"]) for row in rows if row.get("nav_date")]
+    RunLedger(_ledger_path).record(
+        job="fund-run",
+        event="done",
+        status=status,
+        report_path=str(report_path),
+        notify={"sent": bool(sent), "webhook": webhook_configured},
+        counts={"rows": len(rows), "alerts": len(all_alerts), "errors": len(errors)},
+        errors=errors,
+        data_date=max(nav_dates, default=None),
+        duration_ms=int((time.monotonic() - _run_started) * 1000),
+    )
 
     if rows and config.get("review", {}).get("auto", True):
         try:

@@ -19,6 +19,8 @@ from fund_tracker.notify import notify_report
 from fund_tracker.store import Database as FundDatabase
 from stock_tracker.store import Database as StockDatabase
 
+from shared.run_ledger import RunLedger
+
 CONFIG_PATH = BASE_DIR / "model-review-config.json"
 DEFAULT_CONFIG: dict[str, Any] = {
     "report_dir": "reports",
@@ -328,6 +330,11 @@ def _horizon_table(module: dict) -> list[str]:
     return lines
 
 
+def _module_error_lines(module: dict) -> list[str]:
+    text = str(module.get("error") or "数据库读取失败")
+    return ["", f"> ⚠️ {module['label']}模块读取失败：{text}"]
+
+
 def _threshold_table(fund: dict, stock: dict, min_samples: int) -> list[str]:
     lines = [
         "| 模块 | 周期 | 方向样本 | 门槛 | 状态 |",
@@ -487,10 +494,12 @@ def _render_report(
         "### 基金",
         "",
         *_horizon_table(fund),
+        *(_module_error_lines(fund) if fund.get("error") else []),
         "",
         "### 股票",
         "",
         *_horizon_table(stock),
+        *(_module_error_lines(stock) if stock.get("error") else []),
         "",
         "### 调参门槛",
         "",
@@ -657,30 +666,65 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.if_due and not is_last_weekday(day):
-        print(f"{day.isoformat()} 不是本月最后一个工作日，跳过模型复盘。")
+        message = f"{day.isoformat()} 不是本月最后一个工作日，跳过模型复盘。"
+        print(message)
+        RunLedger(BASE_DIR / "data/run_ledger.jsonl").record(
+            job="model-review",
+            event="done",
+            status="skipped",
+            notes="not the last weekday of the month",
+        )
         return 0
 
     report_dir = resolve_path(config.get("report_dir", "reports"))
     path = report_dir / f"model-review-{day.isoformat()[:7]}.md"
     if path.exists() and not args.force:
-        print(f"本月模型复盘已存在，跳过：{path}")
+        skipped_message = f"本月模型复盘已存在，跳过：{path}"
+        print(skipped_message)
+        RunLedger(BASE_DIR / "data/run_ledger.jsonl").record(
+            job="model-review",
+            event="done",
+            status="skipped",
+            report_path=str(path),
+            notes="month report already exists",
+        )
         return 0
 
-    path, summary, report, fund, stock = build_report(
-        day.isoformat(),
-        config,
-        force=args.force,
-    )
-    print(summary)
-    if not args.no_notify:
-        notify_report(
+    sent = False
+    try:
+        path, summary, report, fund, stock = build_report(
+            day.isoformat(),
             config,
-            f"模型表现复盘 · {day.isoformat()[:7]}",
-            summary,
-            report,
+            force=args.force,
         )
-    print(f"报告：{path}")
-    return 0
+        print(summary)
+        if not args.no_notify:
+            sent = notify_report(
+                config,
+                f"模型表现复盘 · {day.isoformat()[:7]}",
+                summary,
+                report,
+            )
+        print(f"报告：{path}")
+        RunLedger(BASE_DIR / "data/run_ledger.jsonl").record(
+            job="model-review",
+            event="done",
+            status="ok",
+            report_path=str(path),
+            notify={"sent": bool(sent)},
+            counts={"fund_total": fund.get("total", 0), "stock_total": stock.get("total", 0)},
+            errors=[module["error"] for module in (fund, stock) if module.get("error")],
+        )
+        return 0
+    except Exception as exc:  # noqa: BLE001
+        print(f"模型复盘失败：{exc}")
+        RunLedger(BASE_DIR / "data/run_ledger.jsonl").record(
+            job="model-review",
+            event="done",
+            status="failed",
+            notes=str(exc)[:200],
+        )
+        return 1
 
 
 if __name__ == "__main__":

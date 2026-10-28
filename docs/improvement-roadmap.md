@@ -76,29 +76,35 @@ commit `0d33901`，已完成：
 目标：让系统“坏了有人知道、数据丢了能恢复”。
 
 - [x] 初始化 git 仓库并推送 GitHub 私有仓库（`a83235d` v0.1.0 + `0d33901` Phase 0.5）；`v0.1.0` 标签尚未打
-- [ ] 自动备份：
-  - SQLite 使用 `.backup`，不要直接复制正在写入的 DB
-  - 同时备份 `holdings.json`、配置、plist、运行脚本
-  - 备份加密，保留 7 日/4 周/6 月
-  - 做一次恢复演练：恢复到临时目录并跑测试/doctor
-- [ ] 运行台账：
-  - 记录 job、计划时间、开始/结束、耗时、退出码、报告路径、推送状态、错误摘要
-  - 不再依赖 `cron.log` 判断是否成功
-- [ ] 失败告警：
-  - 到点未成功、推送失败、报告为空、数据过期，都要告警
-  - 飞书失败重试 2–3 次，仍失败则记录并告警
-  - 模型复盘模块读取失败时必须显示错误，不能显示“0 条”
-- [ ] 固定时区：launchd 和 Python 都设置 `TZ=Asia/Shanghai`
-- [ ] 增加最小 `doctor`：
-  - 配置、数据库、launchd、最新数据日期、webhook、模型端点
-- [ ] 日志轮转和缓存清理策略先定规则，不急着写代码
+- [x] 自动备份（`shared/backup.py` + `scripts/backup.py`）：
+  - SQLite 用 `.backup` API 复制，不直接拷贝写入中的 DB（基金/股票两库）
+  - 同时备份 `holdings.json`、三个 config、仓库 `run_daily.sh`、`scripts/`、全部 5 个 launchd plist 和部署 wrapper（存到归档 `outside/…`）
+  - 加密：`openssl enc -aes-256-cbc -pbkdf2 -iter 200000` + 密码文件 `~/.local/share/fund-tracker/backup-passphrase`（自动生成、chmod 600、永不打印；LibreSSL 拒绝 `-iter` 时自动降级重试）
+  - 保留 7 日 / 4 周 / 6 月：`tier-marks.json` 记录本周/本月首个成功日，漏跑后第一个成功备份补上分档
+  - 明文清单 manifest：逐文件 SHA-256 + 原始 tar.gz 哈希 + git HEAD
+  - 已执行一次真实备份：`dbt-20261028-091757.tar.enc`（22 个源文件，分档 daily/weekly/monthly 各一份）
+- [x] 恢复演练（`scripts/restore_drill.py`）：解密 → 归档哈希比对 → 22/22 文件逐一 SHA-256 校验一致 → 两库 `integrity=ok`（基金 nav 44061 行、股票 prices 12868 行、predictions 84+48 条）→ 4 个 JSON 解析成功 → 对恢复目录跑 `doctor --skip-launchd` 全过。结论：备份可恢复。
+- [x] 运行台账（`shared/run_ledger.py`，JSONL `data/run_ledger.jsonl`）：
+  - 事件 start/done/process；stock 也写共用台账（与 fund 同一文件，便于只读一处）
+  - done 记录 counts / errors（每条截 200 字）/ data_date / duration_ms / notify={sent, webhook}
+  - 模型复盘记 skipped/ok/failed；模块读取失败在报告里用 `> ⚠️` 行标错误，不再显示"0 条"
+  - wrapper（launchd 入口）用 `python3 -m shared.run_ledger` CLI 写 process 事件；是否成功从此以台账为准，不解析 cron.log
+- [x] 失败告警（`scripts/watchdog.py`）：
+  - 纯函数 `evaluate_watch(now, facts)` 独立可测（单元测试 16 个用例）
+  - launchd 每个工作日 19:20 / 20:20 / 20:50 巡检；判据：股票 19:12 未成功、基金 20:12 未成功、推送失败（webhook 已配置而 sent=false）、复盘日缺报告、备份超 30 小时、行情数据超 3 天未更新
+  - 报警走 macOS 通知 + 基金机器人（复用通知层重试 3 次、2s 递增退避）；同一天同一问题只报一次（台账 day/job 去重，`alert-failed` 投递失败不抑制重试）
+  - `--test-alert` 送达演练已发：飞书机器人响应 code=0（机器验证已接受），群内目视待确认
+- [x] 固定时区：全部 5 个部署 wrapper `export TZ="Asia/Shanghai"`，新增 plist 同时给 `EnvironmentVariables` 设 TZ；doctor 校验
+- [x] 最小 `doctor`（`scripts/doctor.py`）：配置（存在/600/合法 JSON/webhook 已填）、两库 integrity+行数+最新日期、holdings 合计一致性+as_of 时效、运行台账、5 个 launchd 状态、备份新鲜度、磁盘、时区
+  - 2026-10-28 09:18 首跑：13 OK / 2 WARN（holdings 为空是“未录入实仓”的既定状态；模型端点未驻留属正常）/ 0 FAIL
+- [ ] 日志轮转：规则先定（不写代码）——`cron.log` 超过 5MB 或跨月第一个工作日人工 `mv cron.log cron.log-YYYYMM`；备份目录保留已由 backup.py 自动执行。落地为自动轮转推迟到 Phase 5 运维项
 
 验收：
 
-- 人为停掉一个任务，能在 15 分钟内收到失败告警
-- 从备份恢复后，`doctor` 能通过
-- 运行台账能回答“昨天 20:00 有没有成功、有没有推送”
-- 时区固定，日期不随系统时区变化
+- [x] 从备份恢复后，`doctor` 能通过（2026-10-28 演练通过）
+- [x] 运行台账能回答“昨天 20:00 有没有成功、有没有推送”（done 事件含 notify.sent/webhook）
+- [x] 时区固定，日期不随系统时区变化（wrapper + plist 双保险，doctor 校验）
+- [ ] 人为停掉一个任务，能在 15 分钟内收到失败告警：逻辑已单测覆盖；今晚 19:20/20:20/20:50 首次实盘巡检，如无真实故障则以“演练消息+首晚空转不误报”为准
 
 ## Phase 2：数据正确性（第 2–3 周，11/03–11/16）
 

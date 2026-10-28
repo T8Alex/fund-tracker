@@ -1,6 +1,7 @@
 #!/bin/zsh
 set -u
 cd "$(dirname "$0")"
+export TZ="Asia/Shanghai"
 
 # launchd 的 PATH 很精简，这里显式补上用户级 Python 和 Homebrew 路径
 export PATH="/Users/t8alex/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
@@ -11,8 +12,7 @@ if [ ! -x "$PYTHON_BIN" ]; then
 fi
 
 mkdir -p data reports
-if [ "${1:-}" = "--no-notify" ]; then
-  "$PYTHON_BIN" -m fund_tracker run --no-notify >> data/cron.log 2>&1
-else
-  "$PYTHON_BIN" -m fund_tracker run >> data/cron.log 2>&1
-fi
+"$PYTHON_BIN" -m fund_tracker run "$@" >> data/cron.log 2>&1
+code=$?
+"$PYTHON_BIN" -m shared.run_ledger append --path data/run_ledger.jsonl --job fund-run --event process --exit-code "$code" >> data/cron.log 2>&1
+exit "$code"

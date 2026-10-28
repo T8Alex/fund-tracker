@@ -131,5 +131,24 @@ class ModelReviewBuildTest(unittest.TestCase):
             self.assertIn("基金 3 条", summary)
 
 
+class ModuleErrorLinesTest(unittest.TestCase):
+    def test_error_lines_name_the_module_and_reason(self) -> None:
+        from fund_tracker.model_review import _module_error_lines
+
+        module = {"label": "基金", "error": "no such table: predictions"}
+        lines = _module_error_lines(module)
+        self.assertEqual(len(lines), 2)
+        combined = "\n".join(lines)
+        self.assertIn("基金", combined)
+        self.assertIn("no such table: predictions", combined)
+        self.assertIn("⚠️", combined)
+
+    def test_default_text_when_error_missing(self) -> None:
+        from fund_tracker.model_review import _module_error_lines
+
+        lines = _module_error_lines({"label": "股票"})
+        self.assertIn("数据库读取失败", "\n".join(lines))
+
+
 if __name__ == "__main__":
     unittest.main()
