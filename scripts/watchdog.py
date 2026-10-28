@@ -26,7 +26,12 @@ from fund_tracker.notify import macos_notify, webhook_notify  # noqa: E402
 
 from shared.run_ledger import RunLedger, events_for_day  # noqa: E402
 from shared.backup import DEFAULT_DEST  # noqa: E402
-from shared.trading_calendar import is_last_weekday, is_weekend  # noqa: E402
+from shared.trading_calendar import (  # noqa: E402
+    is_last_weekday,
+    is_trading_day,
+    is_weekend,
+    trading_days_between,
+)
 
 TZ = ZoneInfo("Asia/Shanghai")
 LEDGER = BASE / "data/run_ledger.jsonl"
@@ -57,17 +62,19 @@ def evaluate_watch(now: datetime, facts: dict, *, cutoffs: dict | None = None) -
         state = facts.get(job) or {}
         title, schedule = JOB_LABEL[job]
         if not state.get("has_run_today"):
-            alerts.append(
-                {
-                    "job": job,
-                    "severity": "high",
-                    "message": (
-                        f"{title}（每天 {schedule}）到点没有成功记录："
-                        "台账和 runs 表都没有今天的成功运行。"
-                        "排查顺序：launchctl print → cron.log → config.json。"
-                    ),
-                }
-            )
+            # 休市日（法定节假日）不生成新报告是规则内跳过，不算故障
+            if is_trading_day(now.date()):
+                alerts.append(
+                    {
+                        "job": job,
+                        "severity": "high",
+                        "message": (
+                            f"{title}（每天 {schedule}）到点没有成功记录："
+                            "台账和 runs 表都没有今天的成功运行。"
+                            "排查顺序：launchctl print → cron.log → config.json。"
+                        ),
+                    }
+                )
         elif state.get("notify_ok") is False:
             alerts.append(
                 {
@@ -122,17 +129,17 @@ def evaluate_watch(now: datetime, facts: dict, *, cutoffs: dict | None = None) -
                     }
                 )
     data_state = facts.get("data") or {}
-    stale_days = data_state.get("stale_days")
-    if stale_days is None:
+    stale_trading_days = data_state.get("stale_trading_days")
+    if stale_trading_days is None:
         return alerts
-    if stale_days > 3:
+    if stale_trading_days > 3:
         alerts.append(
             {
                 "job": "data",
                 "severity": "medium",
                 "message": (
                     f"最新行情数据是 {data_state.get('latest') or '—'}"
-                    f"（{stale_days} 天前）；若今天是交易日，可能是数据源失败。"
+                    f"（{stale_trading_days} 个交易日前）；若今天是交易日，可能是数据源失败。"
                 ),
             }
         )
@@ -167,6 +174,9 @@ def _max_date(db: Path, table: str) -> str | None:
         return None
 
 
+RUN_OK_STATUSES = ("ok", "partial", "skipped")
+
+
 def collect_facts(now: datetime) -> dict:
     today = now.date()
     facts: dict = {}
@@ -179,6 +189,7 @@ def collect_facts(now: datetime) -> dict:
             row
             for row in events_for_day(LEDGER, today, job)
             if row.get("event") == "done"
+            and row.get("status") in RUN_OK_STATUSES
         ]
         done = done_events[-1] if done_events else None
         has_run = bool(done) or _has_ok_run_today(db, today)
@@ -209,13 +220,13 @@ def collect_facts(now: datetime) -> dict:
         )
     }
     latest = _max_date(BASE / "data/fund_tracker.db", "nav")
-    stale_days = None
+    stale_trading_days = None
     if latest:
         try:
-            stale_days = max(0, (today - date.fromisoformat(latest)).days)
+            stale_trading_days = trading_days_between(date.fromisoformat(latest), today)
         except ValueError:
-            stale_days = None
-    facts["data"] = {"latest": latest, "stale_days": stale_days}
+            stale_trading_days = None
+    facts["data"] = {"latest": latest, "stale_trading_days": stale_trading_days}
     return facts
 
 

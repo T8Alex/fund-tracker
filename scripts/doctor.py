@@ -26,6 +26,7 @@ BASE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE))
 
 from shared.run_ledger import load_events  # noqa: E402
+from shared.trading_calendar import holidays_coverage, trading_days_between  # noqa: E402
 
 HOME = Path.home()
 
@@ -120,12 +121,12 @@ def check_databases(root: Path) -> list[tuple[str, str, str]]:
         level = "OK"
         latest = str(info.get("latest_data") or "")
         try:
-            age = (date.today() - date.fromisoformat(latest)).days
+            stale = trading_days_between(date.fromisoformat(latest), date.today())
         except ValueError:
-            age = None
-        if age is None or age > 5:
+            stale = None
+        if stale is None or stale > 5:
             level = "WARN"
-            detail += "；超过 5 个自然日无新数据"
+            detail += "；超过 5 个交易日无新数据"
         results.append((label, level, detail))
     return results
 
@@ -299,6 +300,20 @@ def check_wrappers_tz() -> tuple[str, str]:
     return "OK", detail
 
 
+def check_calendar_coverage() -> tuple[str, str]:
+    start, end = holidays_coverage()
+    if not end:
+        return "WARN", "无 A 股节假日数据集（交易日按仅跳周末近似）；运行 scripts/refresh_holidays.py 生成"
+    try:
+        age_days = (date.today() - date.fromisoformat(end)).days
+    except ValueError:
+        return "WARN", f"覆盖终点 {end} 无法解析"
+    detail = f"交易日集覆盖 {start} … {end}（{age_days} 天前）"
+    if age_days > 60:
+        return "WARN", detail + "；建议刷新：python3 scripts/refresh_holidays.py"
+    return "OK", detail
+
+
 def collect_checks(root: Path, *, skip_launchd: bool) -> list[tuple[str, str, str]]:
     checks: list[tuple[str, str, str]] = []
     checks.append(("配置", *check_configs(root)))
@@ -315,6 +330,7 @@ def collect_checks(root: Path, *, skip_launchd: bool) -> list[tuple[str, str, st
     checks.append(("备份", *check_backups()))
     checks.append(("磁盘", *check_disk()))
     checks.append(("时区", *check_wrappers_tz()))
+    checks.append(("交易日历", *check_calendar_coverage()))
     return checks
 
 

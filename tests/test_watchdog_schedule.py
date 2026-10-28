@@ -26,7 +26,7 @@ def ok_facts(day: int = 28) -> dict:
                 timespec="seconds"
             )
         },
-        "data": {"latest": f"2026-10-{day:02d}", "stale_days": 0},
+        "data": {"latest": f"2026-10-{day:02d}", "stale_trading_days": 0},
     }
 
 
@@ -126,15 +126,30 @@ class WatchTest(unittest.TestCase):
 
     def test_stale_data_alerts_after_three_days(self) -> None:
         facts = ok_facts()
-        facts["data"] = {"latest": "2026-10-24", "stale_days": 4}
+        facts["data"] = {"latest": "2026-10-24", "stale_trading_days": 4}
         alerts = evaluate_watch(_dt(28, 20, 15), facts)
         self.assertEqual([a["job"] for a in alerts], ["data"])
         self.assertEqual(alerts[0]["severity"], "medium")
 
     def test_unknown_staleness_is_silent(self) -> None:
         facts = ok_facts()
-        facts["data"] = {"latest": None, "stale_days": None}
+        facts["data"] = {"latest": None, "stale_trading_days": None}
         self.assertEqual(evaluate_watch(_dt(28, 20, 15), facts), [])
+
+    def test_missing_run_on_market_holiday_weekday_is_silent(self) -> None:
+        # 2026-02-16（周一）是春节休市日：任务没跑不算故障
+        holiday = datetime(2026, 2, 16, 19, 15, tzinfo=TZ)
+        facts = ok_facts(day=28)
+        facts["stock"] = {"has_run_today": False}
+        facts["fund"] = {"has_run_today": False}
+        self.assertEqual(evaluate_watch(holiday, facts), [])
+
+    def test_missing_run_on_trading_day_still_alerts_after_cutover(self) -> None:
+        # 同样配置放到正常交易日（10-28 周三）应报警，保证上面不是假阴性
+        facts = ok_facts(day=28)
+        facts["stock"] = {"has_run_today": False}
+        alerts = evaluate_watch(_dt(28, 19, 15), facts)
+        self.assertEqual([a["job"] for a in alerts], ["stock"])
 
     def test_custom_cutoffs_respected(self) -> None:
         facts = ok_facts()

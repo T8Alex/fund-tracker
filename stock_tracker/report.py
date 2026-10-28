@@ -4,7 +4,8 @@ from datetime import date
 from typing import Any
 
 from fund_tracker.macro import classify_regime
-from fund_tracker.report import next_month_last_weekday, next_weekday_date
+from fund_tracker.report import next_month_last_weekday
+from shared.trading_calendar import next_trading_date
 
 from .evidence import evidence_for
 
@@ -942,7 +943,7 @@ def generate_daily_report(
     ai_section: str = "",
 ) -> str:
     enriched = enrich_rows(rows, alerts, evidence)
-    next_date = next_review_date or next_weekday_date(run_date, 2)
+    next_date = next_review_date or next_trading_date(run_date, 2)
     price_dates = [str(row.get("price_date")) for row in rows if row.get("price_date")]
     as_of = max(price_dates) if price_dates else "—"
     lines = [
@@ -1013,7 +1014,7 @@ def generate_review(
 ) -> str:
     window_days = max(1, int(window_days))
     enriched = enrich_rows(rows, alerts, evidence)
-    next_date = next_review_date or next_weekday_date(review_date, window_days)
+    next_date = next_review_date or next_trading_date(review_date, window_days)
     weighted, basis = _weighted_return(enriched, "ret_window", holdings)
     best, worst = _best_worst(enriched, "ret_window")
     csi = next((item for item in market if item.get("name") == "沪深300"), None)
@@ -1134,7 +1135,7 @@ def generate_summary_report(
             csi_window = csi.get("pct_5d")
     next_date = next_report_date
     if not next_date:
-        next_date = next_weekday_date(report_date, 5) if is_weekly else next_month_last_weekday(report_date)
+        next_date = next_trading_date(report_date, 5) if is_weekly else next_month_last_weekday(report_date)
 
     lines = [
         f"# {title} · {report_date}",

@@ -112,10 +112,14 @@ commit `0d33901`，已完成：
 
 - [ ] 交易日历：
   - [x] 纯重构（2026-10-28，独立提交）：建立共享 `shared/trading_calendar.py`，一处收拢全部重复的日期助手：`next_weekday_date`（learning 0=当天 / report 至少进 1 天，用 `at_least_one` 保留两种历史语义）、`last_weekday_of_month`/`is_last_weekday`/`next_month_last_weekday`（model_review、cli_utils、report 三处零散实现合并）、`count_trading_days_since` 的 SQL（`count_distinct_dates_since`，nav/prices 白名单）、`macro._last_weekdays`、watchdog 的月末判断；行为零变化（旧测试 158 + 新等价测试 26，共 184 全绿）
-  - 0 日 horizon 语义待统一（属行为变更，下一步做）：推荐 horizon 0 = 停留在当天（learning 版）；report 版的 `max(1,…)` 是历史上掩盖漂移的防御写法，由 A 股日历变更时一并收拢
-  - [ ] 2/5/20 日回填按 A 股交易日，不再只跳周末
-  - [ ] 股票/基金任务在法定节假日不生成“新报告”，或明确标注“非交易日”
-  - [ ] 周报/月报的“最后一个工作日”是否改为“最后一个交易日”，单独确认
+  - 0 日 horizon 语义已统一（Phase 2 step 2）：horizon 0 = 停留在当天（learning 语义胜出）；report 旧语义仅保留在 `at_least_one` 兼容层
+  - [x] 2/5/20 日回填按 A 股交易日（Phase 2 step 2，2026-10-28）：
+    - 数据集 `shared/data/ashare_holidays.json` 由 `scripts/refresh_holidays.py` 从东财上证综指日 K 推导（bar=交易日，不猜放假安排），覆盖 2024-01-02 … 2026-10-28 共 681 个交易日、56 个工作日休市日；抽检全部对上法定假日（春节/国庆/元旦/清明）
+    - `next_trading_date`/`is_trading_day`/`is_holiday_weekday`/`last_trading_day_of_month`/`trading_days_between` 入 `shared/trading_calendar.py`；覆盖范围外回退“仅跳周末”近似（文档化限制，doctor 会标覆盖终点）
+    - learning 的预测到期日、fund/stock 各日报的“下一评估日”、周报计划日均改按交易日
+    - 刷新为手动节奏：季度或 doctor 提示（覆盖超 60 天 WARN）时运行
+  - [x] 节假日处理：工作日休市日 fund/stock 任务在 `cmd_run` 开头即 skip（不取数、不建报告、不推送），台账记 `done status=skipped`；watchdog 的“到点没跑”告警只对交易日生效；“数据过期”告警与 doctor 的数据新鲜度都改按交易日计（长假期不再误报）
+  - [ ] 周报/月报的“最后一个工作日”是否改为“最后一个交易日”，单独确认（`last_trading_day_of_month` 已备好，默认仍是最后一个工作日）
 - [ ] 现金口径统一：
   - 目标权重和实际权重都按“总资金（含现金）”计算
   - 或者同时给出“含现金”和“仅投资金”两套口径，并明确标注

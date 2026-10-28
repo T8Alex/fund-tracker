@@ -7,6 +7,7 @@ from statistics import mean
 from typing import Callable, Iterable, Sequence
 
 from shared.trading_calendar import next_weekday_date as _core_next_weekday_date
+from shared.trading_calendar import next_trading_date
 
 HORIZONS = (2, 5, 20)
 
@@ -57,10 +58,7 @@ def ensure_learning_schema(connection: sqlite3.Connection) -> None:
 
 
 def next_weekday_date(start_date: str, trading_days: int) -> str:
-    """Approximate a trading-day horizon by skipping weekends only.
-
-    学习层语义：horizon 0 停留在 start_date 当天（见 trading_calendar 注释）。
-    """
+    """Deprecated：仅周末近似。新代码用 shared.trading_calendar.next_trading_date。"""
     return _core_next_weekday_date(start_date, trading_days)
 
 
@@ -142,7 +140,7 @@ def record_predictions(
                 horizon_days = int(horizon)
                 if horizon_days <= 0:
                     continue
-                due_date = next_weekday_date(report_date, horizon_days)
+                due_date = next_trading_date(report_date, horizon_days)
                 connection.execute(
                     """
                     INSERT INTO predictions(

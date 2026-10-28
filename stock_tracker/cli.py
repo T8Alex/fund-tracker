@@ -49,7 +49,7 @@ from .report import (
     generate_review,
     generate_summary_report,
     next_month_last_weekday,
-    next_weekday_date,
+    next_trading_date,
     summary_text_daily,
     summary_text_review,
     summary_text_summary,
@@ -57,6 +57,7 @@ from .report import (
 from .store import Database
 
 from shared.run_ledger import RunLedger
+from shared.trading_calendar import is_holiday_weekday
 
 LOG = logging.getLogger(__name__)
 LAUNCHD_LABEL = "com.t8alex.stocktracker"
@@ -589,7 +590,7 @@ def _generate_review_if_due(
         run_date_text,
     )
     learning_section = _learning_context(database, run_date_text)
-    next_date = next_weekday_date(run_date_text, interval)
+    next_date = next_trading_date(run_date_text, interval)
     content = generate_review(
         run_date_text,
         report_start,
@@ -1029,6 +1030,16 @@ def cmd_run(args: argparse.Namespace) -> int:
     # 台账与基金共用 data/run_ledger.jsonl，便于 watchdog 只读一处
     _ledger_path = BASE_DIR / "data" / "run_ledger.jsonl"
     RunLedger(_ledger_path).record(job="stock-run", event="start")
+    if is_holiday_weekday(run_date):
+        message = f"{run_date_text} 是工作日但 A 股休市（法定节假日），按规则不生成新报告。"
+        print(message)
+        RunLedger(_ledger_path).record(
+            job="stock-run",
+            event="done",
+            status="skipped",
+            notes="weekday holiday - A 股休市日不生成报告",
+        )
+        return 0
     stocks = database.list_stocks()
     if not stocks:
         print("股票跟踪列表为空。先运行：python3 -m stock_tracker add 600519 --weight 0.10")
