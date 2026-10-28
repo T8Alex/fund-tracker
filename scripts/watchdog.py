@@ -272,7 +272,7 @@ def _record_alert(message: str, *, ok: bool, jobs: list[str], no_ledger: bool) -
 
 def _test_alert(args, cfg: dict) -> int:
     message = "这是运行监控的送达测试，无需处理。"
-    ok = _send_alert(message, "【运行监控】送达演练", no_macos=args.no_macos, cfg=config)
+    ok = _send_alert(message, "【运行监控】送达演练", no_macos=args.no_macos, cfg=cfg)
     _record_alert("演练：" + message, ok=ok, jobs=[], no_ledger=args.no_ledger)
     print("演练报警已发送。" if ok else "演练报警发送失败（macOS 与飞书均失败）。")
     return 0 if ok else 1
