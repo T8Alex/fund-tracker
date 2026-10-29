@@ -1210,6 +1210,7 @@ def generate_daily_report(
     errors: list[str] | None = None,
     learning_section: str = "",
     ai_section: str = "",
+    database=None,
 ) -> str:
     enriched = enrich_rows(rows, alerts, evidence)
     next_date = next_review_date or next_trading_date(run_date, 2)
@@ -1229,6 +1230,9 @@ def generate_daily_report(
     _fw = _freshness_warnings(rows, holdings or {})
     if _fw:
         lines.extend(_fw)
+    _dc = _data_completeness_section(run_date, database)
+    if _dc:
+        lines.append(_dc)
     if macro_section:
         lines.append(macro_section)
     else:

@@ -1258,6 +1258,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         all_alerts,
         config,
         macro_section=macro_section,
+        database=database,
         evidence=evidence,
         learning_section=learning_section,
         ai_section=ai_section,
