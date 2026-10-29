@@ -1225,6 +1225,9 @@ def cmd_run(args: argparse.Namespace) -> int:
     for alert in all_alerts:
         alerts_by_code.setdefault(alert.get("code", ""), []).append(alert)
     evidence = build_evidence(rows, macro_snapshot, alerts_by_code)
+    # B1: compute data_date from actual NAV dates, not run_date
+    nav_dates = [str(row["nav_date"]) for row in rows if row.get("nav_date")]
+    data_date = max(nav_dates) if nav_dates else run_date_text
     ai_section = _ai_daily_section(
         database,
         config,
@@ -1277,7 +1280,6 @@ def cmd_run(args: argparse.Namespace) -> int:
         else:
             sent = notify(config, "基金跟踪日报", summary)
 
-    nav_dates = [str(row["nav_date"]) for row in rows if row.get("nav_date")]
     RunLedger(_ledger_path).record(
         job="fund-run",
         event="done",
@@ -1290,13 +1292,15 @@ def cmd_run(args: argparse.Namespace) -> int:
         duration_ms=int((time.monotonic() - _run_started) * 1000),
     )
 
-    if rows and config.get("review", {}).get("auto", True):
+    # B1: only generate review when data_date matches run_date
+    review_data_date = data_date if data_date == run_date_text else None
+    if rows and review_data_date and config.get("review", {}).get("auto", True):
         try:
             review_result = _generate_review_if_due(
                 database,
                 config,
                 client,
-                run_date_text,
+                review_data_date,
                 macro_snapshot=macro_snapshot,
                 macro_section=macro_section,
             )
@@ -1397,6 +1401,9 @@ def cmd_report(args: argparse.Namespace) -> int:
     for alert in alerts:
         alerts_by_code.setdefault(alert.get("code", ""), []).append(alert)
     evidence = build_evidence(rows, macro_snapshot, alerts_by_code)
+    # B1: compute data_date from actual NAV dates, not run_date
+    nav_dates = [str(row["nav_date"]) for row in rows if row.get("nav_date")]
+    data_date = max(nav_dates) if nav_dates else run_date_text
     ai_section = _ai_daily_section(
         database,
         config,
