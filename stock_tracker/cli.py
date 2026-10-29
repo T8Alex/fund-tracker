@@ -23,7 +23,9 @@ from fund_tracker.ai_digest import (
 )
 from fund_tracker.config import BASE_DIR, load_config as load_fund_config
 from fund_tracker.fetch import (
+    INDEX_SECIDS,
     HttpClient,
+    fetch_index_history,
     fetch_market,
     fetch_market_history,
     fetch_market_history_range,
@@ -56,6 +58,9 @@ from .report import (
 )
 from .store import Database
 
+from shared.market import market_close as market_close_from_series
+from shared.market import market_history as market_history_from_series
+from shared.market import market_range as market_range_from_series
 from shared.run_ledger import RunLedger
 from shared.trading_calendar import (
     is_holiday_weekday,
@@ -295,6 +300,73 @@ def _macro_context(client: HttpClient, config: dict) -> tuple[dict, str]:
         print(f"宏观数据获取失败，报告继续：{exc}")
         return {}, ""
     return snapshot, build_macro_section(snapshot)
+
+
+def _index_series(client: HttpClient) -> dict[str, list[dict]]:
+    """Snapshot ~120 trading days of index bars, so a run can be replayed."""
+    series: dict[str, list[dict]] = {}
+    for name, secid in INDEX_SECIDS.items():
+        try:
+            bars = fetch_index_history(client, secid, days=120)
+        except Exception as exc:  # noqa: BLE001 - index history is optional
+            print(f"指数历史获取失败 {name}：{exc}")
+            continue
+        if bars:
+            series[name] = bars
+    return series
+
+
+def _market_history_for(
+    database: Database,
+    client: HttpClient,
+    run_date_text: str,
+    count: int,
+) -> list[dict]:
+    """Reuse the index bars saved by ``run``; only hit the network when absent."""
+    series = database.get_artifact(run_date_text, "index_history")
+    if series:
+        rows = market_history_from_series(series, count, as_of=run_date_text)
+        if rows:
+            print(f"市场区间使用落盘指数快照（{run_date_text}）")
+            return rows
+    return fetch_market_history(client, count=count)
+
+
+def _market_range_for(
+    database: Database,
+    client: HttpClient,
+    run_date_text: str,
+    start_date: str,
+    end_date: str,
+) -> list[dict]:
+    series = database.get_artifact(run_date_text, "index_history")
+    if series:
+        rows = market_range_from_series(series, start_date, end_date)
+        if rows:
+            print(f"市场区间使用落盘指数快照（{run_date_text}）")
+            return rows
+    return fetch_market_history_range(client, start_date, end_date)
+
+
+def _resolve_macro(
+    database: Database,
+    client: HttpClient,
+    config: dict,
+    run_date_text: str,
+    macro_snapshot: dict | None = None,
+    macro_section: str | None = None,
+) -> tuple[dict, str]:
+    """Same contract as ``_macro_context``, but prefer the saved snapshot."""
+    if macro_snapshot is None:
+        cached = database.get_artifact(run_date_text, "macro")
+        if cached:
+            print(f"宏观使用落盘快照（{run_date_text}）")
+            macro_snapshot = cached
+    if macro_snapshot is None:
+        return _macro_context(client, config)
+    if macro_section is None:
+        macro_section = build_macro_section(macro_snapshot) if macro_snapshot else ""
+    return macro_snapshot, macro_section
 
 
 def _build_alerts(metrics: dict, previous: dict | None, config: dict) -> list[dict]:
@@ -578,11 +650,10 @@ def _generate_review_if_due(
         Counter(start_dates).most_common(1)[0][0] if start_dates else period_start
     )
     alerts = database.get_alerts_on_or_before(run_date_text)
-    market = fetch_market_history(client, count=interval + 1)
-    if macro_snapshot is None:
-        macro_snapshot, macro_section = _macro_context(client, config)
-    elif macro_section is None:
-        macro_section = build_macro_section(macro_snapshot) if macro_snapshot else ""
+    market = _market_history_for(database, client, run_date_text, interval + 1)
+    macro_snapshot, macro_section = _resolve_macro(
+        database, client, config, run_date_text, macro_snapshot, macro_section
+    )
     evidence = build_evidence(rows, macro_snapshot)
     enriched = enrich_rows(rows, alerts, evidence)
     _record_learning(database, run_date_text, enriched)
@@ -680,11 +751,12 @@ def _generate_summary_if_due(
         Counter(start_dates).most_common(1)[0][0] if start_dates else return_start
     )
     alerts = database.get_alerts_on_or_before(report_date_text)
-    market = fetch_market_history_range(client, return_start, report_date_text)
-    if macro_snapshot is None:
-        macro_snapshot, macro_section = _macro_context(client, config)
-    elif macro_section is None:
-        macro_section = build_macro_section(macro_snapshot) if macro_snapshot else ""
+    market = _market_range_for(
+        database, client, report_date_text, return_start, report_date_text
+    )
+    macro_snapshot, macro_section = _resolve_macro(
+        database, client, config, report_date_text, macro_snapshot, macro_section
+    )
     evidence = build_evidence(rows, macro_snapshot)
     enriched = enrich_rows(rows, alerts, evidence)
     if kind == "weekly":
@@ -1105,7 +1177,28 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     holdings_info = attach_holdings(rows, load_holdings(config))
     market = fetch_market(client)
+    index_series = _index_series(client)
+    if index_series:
+        database.save_artifact(run_date_text, "index_history", index_series)
+    live_run = run_date_text == date.today().isoformat()
+    if live_run:
+        if market:
+            database.save_artifact(run_date_text, "market", market)
+    else:
+        # Replaying a past date: the live quote is today's, so rebuild the
+        # section from that day's index closes instead of writing today's
+        # numbers into a historical report.
+        rebuilt = market_close_from_series(index_series, run_date_text)
+        if rebuilt:
+            market = rebuilt
+        else:
+            print(
+                f"补跑 {run_date_text}：没有当日指数收盘，市场段保留实时快照，"
+                "历史报告的可复现性不完整。"
+            )
     macro_snapshot, macro_section = _macro_context(client, config)
+    if macro_snapshot and live_run:
+        database.save_artifact(run_date_text, "macro", macro_snapshot)
     evidence = build_evidence(rows, macro_snapshot)
     ai_section = _ai_daily_section(
         database,

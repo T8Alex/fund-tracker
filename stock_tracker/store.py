@@ -72,6 +72,13 @@ CREATE TABLE IF NOT EXISTS summary_reports (
     content_path TEXT,
     PRIMARY KEY (kind, period_key)
 );
+CREATE TABLE IF NOT EXISTS run_artifacts (
+    run_date TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (run_date, kind)
+);
 """
 
 
@@ -298,6 +305,37 @@ class Database:
                 """,
                 (run_date, status, summary),
             )
+
+    def save_artifact(self, run_date: str, kind: str, payload) -> None:
+        """Persist a run-scoped JSON payload (market / macro / index history).
+
+        A past report has to reuse the data seen on that day: rebuilding the
+        10-29 review on 11-05 must not describe the 11-05 market.
+        """
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO run_artifacts(run_date, kind, payload, created_at)
+                VALUES(?, ?, ?, datetime('now', 'localtime'))
+                ON CONFLICT(run_date, kind) DO UPDATE SET
+                    payload=excluded.payload,
+                    created_at=excluded.created_at
+                """,
+                (run_date, kind, json.dumps(payload, ensure_ascii=False)),
+            )
+
+    def get_artifact(self, run_date: str, kind: str):
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT payload FROM run_artifacts WHERE run_date=? AND kind=?",
+                (run_date, kind),
+            ).fetchone()
+        if not row:
+            return None
+        try:
+            return json.loads(row["payload"])
+        except ValueError:
+            return None
 
     def get_run(self, run_date: str) -> dict | None:
         with self._connect() as connection:
