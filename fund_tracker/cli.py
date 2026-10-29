@@ -95,13 +95,7 @@ LAUNCHD_LABEL = "com.t8alex.fundtracker"
 
 # Exit codes: launchd/watchdog must be able to tell "all good" from "ran but
 # degraded" without parsing Chinese log text.
-from shared.exit_codes import (  # noqa: E402
-    EXIT_FAILED,
-    EXIT_OK,
-    EXIT_PARTIAL,
-    EXIT_STALE,
-    exit_code_for_status,
-)
+from shared.exit_codes import exit_code_for_status  # noqa: E402
 # launchd does not reliably pass non-ASCII paths on macOS. Keep a small ASCII
 # wrapper in a non-protected directory; it cd's into the real project and runs
 # Python directly (nesting another zsh script breaks on the Chinese path).

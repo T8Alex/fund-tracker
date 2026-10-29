@@ -42,6 +42,21 @@ def _md5(path: Path) -> str:
     return hashlib.md5(path.read_bytes()).hexdigest()
 
 
+def _integrity_counts(row: str) -> tuple[int, int] | None:
+    """Parse ``| 大盘指数 | 成功 | 失败 | 状态 |`` into (success, failed).
+
+    A substring test on the row is not enough: ``| 0 | 1 | ❌ 失败 |`` also
+    contains ``| 1 |``, so a fully failed run would pass the check.
+    """
+    cells = [cell.strip() for cell in row.strip().strip("|").split("|")]
+    if len(cells) < 3:
+        return None
+    try:
+        return int(cells[1]), int(cells[2])
+    except ValueError:
+        return None
+
+
 def check_fund(root: Path, day: str, results: list) -> None:
     conn = _connect(root / "data/fund_tracker.db")
     if conn is None:
@@ -140,7 +155,8 @@ def check_fund(root: Path, day: str, results: list) -> None:
                 (line for line in text.splitlines() if line.startswith("| 大盘指数 |")),
                 "",
             )
-            ok = "| 1 |" in row
+            counts = _integrity_counts(row)
+            ok = counts == (1, 0)
             _check(
                 results,
                 "PASS" if ok else "WARN",
@@ -149,6 +165,15 @@ def check_fund(root: Path, day: str, results: list) -> None:
             )
         else:
             _check(results, "WARN", "报告数据完整性", "报告缺少该小节")
+        if "含实时回退数据" in text:
+            _check(
+                results,
+                "WARN",
+                "报告可复现性",
+                "含实时回退横幅：该日期缺落盘快照，重跑可能不同",
+            )
+        else:
+            _check(results, "PASS", "报告可复现性", "未使用实时回退数据")
 
 
 def check_stock(root: Path, day: str, results: list) -> None:
