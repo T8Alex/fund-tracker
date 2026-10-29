@@ -12,7 +12,9 @@ from datetime import date
 from pathlib import Path
 from fund_tracker.evidence import evidence_for
 from shared.trading_calendar import next_trading_date, next_weekday_date as _next_weekday_date
-from shared.trading_calendar import next_month_last_weekday as _next_month_last
+from shared.trading_calendar import (
+    next_month_last_trading_day as _next_month_last,
+)
 
 
 def next_weekday_date(start_date, trading_days):
@@ -21,7 +23,8 @@ def next_weekday_date(start_date, trading_days):
 
 
 def next_month_last_weekday(start_date):
-    return _next_month_last(date.fromisoformat(start_date)).isoformat()
+    """Monthly anchor: last trading day of next month (kept name for callers)."""
+    return _next_month_last(date.fromisoformat(start_date))
 
 
 RECOMMENDATION_GROUPS = [

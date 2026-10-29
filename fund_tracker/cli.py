@@ -84,7 +84,10 @@ from .report import (
 from .store import Database
 
 from shared.run_ledger import RunLedger
-from shared.trading_calendar import is_holiday_weekday
+from shared.trading_calendar import (
+    is_holiday_weekday,
+    last_trading_day_of_month,
+)
 
 LOG = logging.getLogger(__name__)
 LAUNCHD_LABEL = "com.t8alex.fundtracker"
@@ -785,7 +788,7 @@ def _generate_summary_if_due(
         period_label = "本周"
         next_date = (report_date + timedelta(days=7)).isoformat()
     elif kind == "monthly":
-        if _last_weekday_of_month(report_date) != report_date and not force:
+        if last_trading_day_of_month(report_date) != report_date and not force:
             return None
         period_key = f"{report_date.year}-{report_date.month:02d}"
         first_current = date(report_date.year, report_date.month, 1)
@@ -1077,7 +1080,7 @@ def _cmd_summary(kind: str, args: argparse.Namespace) -> int:
         return 0
     if (
         kind == "monthly"
-        and _last_weekday_of_month(run_date) != run_date
+        and last_trading_day_of_month(run_date) != run_date
         and not args.force
     ):
         print("月度总结只在每月最后一个工作日生成；要补生成请加 --force。")

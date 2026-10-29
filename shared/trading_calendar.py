@@ -137,6 +137,16 @@ def last_trading_day_of_month(day: date) -> date:
     return cursor
 
 
+def next_month_last_trading_day(day: date) -> str:
+    """Last trading day of the month after `day`, as ISO string."""
+    year, month = day.year, day.month
+    if month == 12:
+        year, month = year + 1, 1
+    else:
+        month += 1
+    return last_trading_day_of_month(date(year, month, 1)).isoformat()
+
+
 def trading_days_between(start_day: date | str, end_day: date | str) -> int:
     """Count trading days in `(start, end]`; coverage beyond end falls back to weekends."""
     if isinstance(start_day, str):

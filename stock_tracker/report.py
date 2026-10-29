@@ -4,8 +4,7 @@ from datetime import date
 from typing import Any
 
 from fund_tracker.macro import classify_regime
-from fund_tracker.report import next_month_last_weekday
-from shared.trading_calendar import next_trading_date
+from shared.trading_calendar import next_month_last_trading_day, next_trading_date
 
 from .evidence import evidence_for
 
@@ -1135,7 +1134,7 @@ def generate_summary_report(
             csi_window = csi.get("pct_5d")
     next_date = next_report_date
     if not next_date:
-        next_date = next_trading_date(report_date, 5) if is_weekly else next_month_last_weekday(report_date)
+        next_date = next_trading_date(report_date, 5) if is_weekly else next_month_last_trading_day(report_date)
 
     lines = [
         f"# {title} · {report_date}",

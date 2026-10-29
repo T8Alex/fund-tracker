@@ -178,6 +178,15 @@ class TradingDayTest(unittest.TestCase):
         self.assertFalse(tc.is_trading_day(date(2026, 11, 1)))
         self.assertFalse(tc.is_holiday_weekday(date(2026, 11, 2)))
 
+    def test_next_month_last_trading_day(self) -> None:
+        self.assertEqual(
+            tc.next_month_last_trading_day(date(2026, 10, 15)), "2026-11-30"
+        )
+        # 2025-01-31 是春节休市日，最后一个交易日应为 01-27
+        self.assertEqual(
+            tc.next_month_last_trading_day(date(2024, 12, 20)), "2025-01-27"
+        )
+
     def test_last_trading_day_of_month(self) -> None:
         self.assertEqual(tc.last_trading_day_of_month(date(2026, 9, 10)), date(2026, 9, 30))
         self.assertEqual(tc.last_trading_day_of_month(date(2026, 2, 10)), date(2026, 2, 27))
