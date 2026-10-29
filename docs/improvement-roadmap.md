@@ -297,3 +297,26 @@ commit `0d33901`，已完成：
 4. 每期结束都做一次复盘：是否真的降低了故障率/误判率。
 5. 交易流水和真实资金不进入系统，相关结论统一标注为“快照估算”。
 6. 纯重构（行为不变的抽取）与行为变更分开提交：先保证抽取后测试原样通过，再改口径。
+
+## P0 硬伤修复（2026-10-29 晚，代码评审后）
+
+范围：只修可验证的正确性/可运维性问题，不动评分规则、不改目标权重。
+
+| # | 问题 | 证据 | 修法 |
+|---|---|---|---|
+| 1 | `source_health` 主键含可空列，`ON CONFLICT` 永不生效 | 10-29 当天 `macro`/`market_index` 各有 9 条完全重复行，日报“数据完整性”显示“大盘指数 9 / 成功 9” | `fund_code TEXT NOT NULL DEFAULT ''` + 启动时重建表并去重；`save_source_health` 归一化 `None → ''` |
+| 2 | 日报/推荐报告“证据面板”五个子分列恒为 `—` | `_evidence_table` 读 `ev['quality']`，而 `build_evidence` 把子分放在 `ev['parts']` | 读 `parts`，并兼容扁平结构（股票模块是扁平） |
+| 3 | 历史报告不可复现：`report --date X` 会重新抓当日行情/宏观 | 同一日期重跑可得不同结论 | 新增 `run_artifacts` 表，`run` 落盘 market/macro，`report` 优先复用，缺失才联网并提示 |
+| 4 | `latest.md` 用相对 CWD 写入，与 `save_report` 的 BASE_DIR 锚定不一致 | `cli.py:1410` 重复写了一次 `latest.md` | 删除重复写入，统一由 `save_report` 落到 `report_dir` |
+| 5 | 部分失败仍退出 0；`stale` 时完全不推送 | launchd/watchdog 无法区分“跑完但降级”和“正常”；静默失败最难发现 | 退出码 ok=0 / partial=2 / stale=3 / failed=1（plist 无 KeepAlive，不会触发重启循环）；`stale` 改为推一条“数据不完整”短消息 |
+| 6 | 评分公式变更会让快照差异变成假的“掉N分” | `snapshots` 无版本字段 | 新增 `formula_version`（`shared/formula.py`），迁移时回填 `ev-2026.10`，`get_previous_snapshot` 只与同版本比较 |
+
+复核更正（我上一轮评审的口误）：**“runs.summary 与 review 报告四组数字不一致”在 10-29 已不复现**。核对结果：
+- 10-27：summary 全 0，review 为 5/7/2 —— 是当时那个已知 bug 的残留；
+- 10-28：summary 5/7/2（与 10-27 review 一致）；
+- 10-29：两边都是 0/0/2/6/6，一致。
+
+因此该条从“待修 bug”降级为“结构风险”：summary 走日报行、review 走 2 日窗口行，两条路径都调用同一个 `_recommendation_bucket`，目前数值相同，但仍是两个入口，值得在 Phase 3 合并成单一函数。
+
+测试：214 个用例全通过（Python 3.12 / 3.9 各跑一遍），新增 9 个用例覆盖上述修复。
+端到端验证（临时副本，未碰生产库）：`run --force` → 落盘 624B/4551B 两件产物 → 再次 `report` 打印“使用落盘快照”，数据完整性显示 1/0。
