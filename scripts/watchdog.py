@@ -174,7 +174,7 @@ def _max_date(db: Path, table: str) -> str | None:
         return None
 
 
-RUN_OK_STATUSES = ("ok", "partial", "skipped")
+RUN_OK_STATUSES = ("ok", "partial", "skipped", "stale")
 
 
 def collect_facts(now: datetime) -> dict:
@@ -194,7 +194,8 @@ def collect_facts(now: datetime) -> dict:
         done = done_events[-1] if done_events else None
         has_run = bool(done) or _has_ok_run_today(db, today)
         notify = (done or {}).get("notify") if done else None
-        if notify is None:
+        if notify is None or (done or {}).get("status") == "stale":
+            # stale 表示数据过期、主动不推送正常结论，不算推送失败
             notify_ok = None
         elif not notify.get("webhook"):
             # webhook 未配置时 pushed 必然失败，不算异常

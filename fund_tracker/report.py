@@ -1049,6 +1049,15 @@ def _freshness_warnings(
     return warnings
 
 
+def _quality_banner(data_quality: dict | None) -> list[str]:
+    if not data_quality:
+        return []
+    from .freshness import banner as _banner
+
+    text = _banner(data_quality)
+    return [text, ""] if text else []
+
+
 def _data_completeness_section(run_date_text: str, database) -> str | None:
     """Return a data completeness section for the report, or None if all good."""
     if database is None:
@@ -1229,6 +1238,7 @@ def generate_daily_report(
     ai_section: str = "",
     database=None,
     snapshot: dict | None = None,
+    data_quality: dict | None = None,
 ) -> str:
     enriched = enrich_rows(rows, alerts, evidence)
     next_date = next_review_date or next_trading_date(run_date, 2)
@@ -1241,6 +1251,7 @@ def generate_daily_report(
         f"> 观察池 {len(rows)} 只；行情数据截至 {as_of}。",
         "> 本报告按机械规则生成，参考区间不是预测，不构成投资建议，也不保证收益。",
         "",
+        *_quality_banner(data_quality),
         "## 一、市场快照",
         "",
         _market_table(market),
@@ -1307,6 +1318,7 @@ def generate_review(
     learning_section: str = "",
     ai_section: str = "",
     snapshot: dict | None = None,
+    data_quality: dict | None = None,
 ) -> str:
     window_days = max(1, int(window_days))
     enriched = enrich_rows(rows, alerts, evidence)
@@ -1329,6 +1341,7 @@ def generate_review(
         "若报告日无新行情，动作按最近交易日顺延。",
         "> 本报告按机械规则生成，参考区间不是预测，不构成投资建议，也不保证收益。",
         "",
+        *_quality_banner(data_quality),
         f"## 一、{window_days} 日市场",
         "",
         _period_market_table(market, f"{window_days} 日"),

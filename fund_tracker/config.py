@@ -18,6 +18,12 @@ DEFAULTS: dict[str, Any] = {
     "profile_cache_hours": 168,
     "extras_cache_hours": 24,
     "stale_days": 5,
+    "freshness": {
+        "warn_days": 5,
+        "hard_days": 7,
+        "holdings_warn_days": 7,
+        "hard_ratio": 0.8,
+    },
     "max_drawdown_tolerance": 15.0,
     "alerts": {
         "daily_move_pct": 2.0,
