@@ -1,8 +1,17 @@
 from __future__ import annotations
 
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
 from fund_tracker.cli import _select_announcements
+from fund_tracker.holdings import (
+    append_holdings_snapshot,
+    ledger_path,
+    load_holdings_ledger,
+    snapshot_performance,
+)
 from fund_tracker.fetch import _parse_holding_table
 
 
@@ -42,6 +51,63 @@ class HoldingsTest(unittest.TestCase):
         selected = _select_announcements(items)
         titles = [item["title"] for item in selected]
         self.assertIn("测试基金2025年年度报告", titles)
+
+
+class HoldingsLedgerTest(unittest.TestCase):
+    def _config(self, root: Path) -> dict:
+        return {"holdings_file": str(root / "holdings.json")}
+
+    def _holding(self, as_of: str, total: float) -> dict:
+        return {
+            "loaded": True,
+            "as_of": as_of,
+            "total_value": total,
+            "market_total": total - 100.0,
+            "cash": 100.0,
+            "source": "test",
+            "items": [{"code": "000001", "market_value": total - 100.0, "pnl": 1.0}],
+        }
+
+    def test_append_is_idempotent_per_date(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self._config(Path(tmp))
+            first = append_holdings_snapshot(config, self._holding("2026-10-28", 100000.0))
+            second = append_holdings_snapshot(config, self._holding("2026-10-28", 101000.0))
+            self.assertIsNotNone(first)
+            self.assertIsNone(second)
+            records = load_holdings_ledger(config)
+            self.assertEqual(len(records), 1)
+            self.assertAlmostEqual(records[0]["total_value"], 100000.0)
+            ledger = ledger_path(config)
+            self.assertTrue(ledger.exists())
+            payload = json.loads(ledger.read_text(encoding="utf-8").strip())
+            self.assertEqual(payload["as_of"], "2026-10-28")
+
+    def test_append_skips_unloaded_holdings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self._config(Path(tmp))
+            self.assertIsNone(
+                append_holdings_snapshot(config, {"loaded": False, "as_of": None})
+            )
+            self.assertEqual(load_holdings_ledger(config), [])
+
+    def test_snapshot_performance(self) -> None:
+        records = [
+            {"as_of": "2026-10-20", "total_value": 100000.0},
+            {"as_of": "2026-10-21", "total_value": 105000.0},
+            {"as_of": "2026-10-22", "total_value": 95000.0},
+            {"as_of": "2026-10-23", "total_value": 102000.0},
+        ]
+        stats = snapshot_performance(records)
+        self.assertIsNotNone(stats)
+        self.assertEqual(stats["count"], 4)
+        self.assertAlmostEqual(stats["return_pct"], 2.0)
+        self.assertAlmostEqual(stats["max_drawdown_pct"], (95000 / 105000 - 1) * 100)
+
+    def test_snapshot_performance_needs_two_points(self) -> None:
+        self.assertIsNone(snapshot_performance([]))
+        self.assertIsNone(snapshot_performance([{"as_of": "2026-10-20", "total_value": 1.0}]))
+
 
 
 if __name__ == "__main__":

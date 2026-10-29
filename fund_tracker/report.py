@@ -1088,6 +1088,23 @@ def _data_completeness_section(run_date_text: str, database) -> str | None:
         return None
 
 
+def _snapshot_section(snapshot: dict | None) -> str | None:
+    """Estimated return/drawdown from holdings snapshots (not strict TWR)."""
+    if not snapshot or not snapshot.get("count") or snapshot.get("count") < 2:
+        return None
+    ret = snapshot.get("return_pct")
+    dd = snapshot.get("max_drawdown_pct")
+    lines = [
+        "### 持仓快照估算",
+        "",
+        f"- 快照 {snapshot.get('count')} 条：{snapshot.get('first_date')} → {snapshot.get('last_date')}。",
+        f"- 估算区间收益：**{fmt_pct(ret)}**；估算最大回撤：**{fmt_pct(dd)}**。",
+        "- 口径说明：基于持仓快照逐日市值估算，**不是严格 TWR/XIRR**；申赎、分红、费率未计入。",
+        "",
+    ]
+    return "\n".join(lines)
+
+
 def _rules_section(heading: str = "## 九、规则说明") -> str:
     return "\n".join(
         [
@@ -1211,6 +1228,7 @@ def generate_daily_report(
     learning_section: str = "",
     ai_section: str = "",
     database=None,
+    snapshot: dict | None = None,
 ) -> str:
     enriched = enrich_rows(rows, alerts, evidence)
     next_date = next_review_date or next_trading_date(run_date, 2)
@@ -1254,6 +1272,7 @@ def generate_daily_report(
             "### 实际持仓",
             "",
             _holdings_table(enriched, holdings),
+            *([_snapshot_section(snapshot), ""] if _snapshot_section(snapshot) else []),
             _alerts_block(alerts, heading="### 今日预警"),
             "### 重要公告",
             "",
@@ -1287,6 +1306,7 @@ def generate_review(
     holdings: dict | None = None,
     learning_section: str = "",
     ai_section: str = "",
+    snapshot: dict | None = None,
 ) -> str:
     window_days = max(1, int(window_days))
     enriched = enrich_rows(rows, alerts, evidence)
@@ -1366,6 +1386,7 @@ def generate_review(
             "### 实际持仓",
             "",
             _holdings_table(enriched, holdings),
+            *([_snapshot_section(snapshot), ""] if _snapshot_section(snapshot) else []),
             _alerts_block(alerts, heading="### 本期预警"),
             "### 重要公告",
             "",

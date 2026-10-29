@@ -37,7 +37,13 @@ from .fetch import (
     search_fund,
 )
 from .evidence import build_evidence
-from .holdings import attach_holdings, load_holdings
+from .holdings import (
+    append_holdings_snapshot,
+    attach_holdings,
+    load_holdings,
+    load_holdings_ledger,
+    snapshot_performance,
+)
 from .learning import (
     evaluate_predictions,
     record_predictions,
@@ -105,6 +111,18 @@ def _learning_series_loader(database: Database):
         ]
 
     return load
+
+
+def _holdings_with_snapshot(config: dict, rows: list[dict]) -> tuple[dict, dict | None]:
+    """Attach holdings and append a snapshot (idempotent per as_of)."""
+    holdings = attach_holdings(rows, load_holdings(config))
+    stats = None
+    try:
+        append_holdings_snapshot(config, holdings)
+        stats = snapshot_performance(load_holdings_ledger(config))
+    except Exception as exc:  # noqa: BLE001 - snapshot is best-effort
+        print(f"持仓快照写入失败：{exc}")
+    return holdings, stats
 
 
 def _learning_context(
@@ -921,7 +939,7 @@ def _generate_review_if_due(
     report_start = (
         Counter(start_dates).most_common(1)[0][0] if start_dates else period_start
     )
-    holdings = attach_holdings(rows, load_holdings(config))
+    holdings, snapshot = _holdings_with_snapshot(config, rows)
 
     alerts = database.get_alerts(run_date_text)
     market = fetch_market_history(client, count=interval + 1)
@@ -970,6 +988,7 @@ def _generate_review_if_due(
         learning_section=learning_section,
         ai_section=ai_section,
         holdings=holdings,
+        snapshot=snapshot,
     )
     path = save_review_report(
         BASE_DIR / config["report_dir"],
@@ -1250,7 +1269,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     )
     learning_section = _learning_context(database, run_date_text)
     rows.sort(key=lambda item: (item.get("category") or "其他", -(item.get("score") or 0)))
-    holdings = attach_holdings(rows, load_holdings(config))
+    holdings, snapshot = _holdings_with_snapshot(config, rows)
     report = generate_report(
         run_date_text,
         rows,
@@ -1263,6 +1282,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         learning_section=learning_section,
         ai_section=ai_section,
         holdings=holdings,
+        snapshot=snapshot,
     )
     report_path = save_report(
         BASE_DIR / config["report_dir"],
