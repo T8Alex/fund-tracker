@@ -95,19 +95,13 @@ LAUNCHD_LABEL = "com.t8alex.fundtracker"
 
 # Exit codes: launchd/watchdog must be able to tell "all good" from "ran but
 # degraded" without parsing Chinese log text.
-EXIT_OK = 0
-EXIT_FAILED = 1
-EXIT_PARTIAL = 2
-EXIT_STALE = 3
-
-
-def exit_code_for_status(status: str) -> int:
-    return {
-        "ok": EXIT_OK,
-        "partial": EXIT_PARTIAL,
-        "stale": EXIT_STALE,
-        "failed": EXIT_FAILED,
-    }.get(str(status or ""), EXIT_FAILED)
+from shared.exit_codes import (  # noqa: E402
+    EXIT_FAILED,
+    EXIT_OK,
+    EXIT_PARTIAL,
+    EXIT_STALE,
+    exit_code_for_status,
+)
 # launchd does not reliably pass non-ASCII paths on macOS. Keep a small ASCII
 # wrapper in a non-protected directory; it cd's into the real project and runs
 # Python directly (nesting another zsh script breaks on the Chinese path).
@@ -145,6 +139,16 @@ def _holdings_with_snapshot(config: dict, rows: list[dict]) -> tuple[dict, dict 
         print(f"持仓快照写入失败：{exc}")
     return holdings, stats
 
+
+def _insert_replay_note(report: str, missing: list[str]) -> str:
+    """Prefix section one with a warning when a report used live fallbacks."""
+    if not missing:
+        return report
+    note = (
+        f"> **本报告含实时回退数据（{'、'.join(missing)}）**："
+        "该日期未落盘对应快照，重跑可能得到不同结论。\n"
+    )
+    return report.replace("\n## 一、", "\n" + note + "\n## 一、", 1)
 
 def _learning_context(
     database: Database,
@@ -1458,10 +1462,12 @@ def cmd_report(args: argparse.Namespace) -> int:
     # Rebuilding a past report must reuse what that day actually saw, otherwise
     # the same date yields different conclusions every time it is re-run.
     cached_market = database.get_artifact(run_date_text, "market")
+    replay_missing: list[str] = []
     if cached_market is not None:
         market = cached_market
         print(f"使用 {run_date_text} 落盘的行情快照（可复现）。")
     else:
+        replay_missing.append("行情")
         try:
             market = fetch_market(client)
             database.save_source_health("market_index", run_date_text, None, True)
@@ -1476,6 +1482,7 @@ def cmd_report(args: argparse.Namespace) -> int:
             macro_snapshot = cached_macro
             print(f"使用 {run_date_text} 落盘的宏观快照（可复现）。")
         else:
+            replay_missing.append("宏观/新闻")
             try:
                 macro_snapshot = fetch_macro_snapshot(
                     client,
@@ -1517,6 +1524,7 @@ def cmd_report(args: argparse.Namespace) -> int:
         ai_section=ai_section,
         holdings=holdings,
     )
+    report = _insert_replay_note(report, replay_missing)
     path = save_report(BASE_DIR / config["report_dir"], run_date_text, report)
     print(f"已生成：{path}")
     return 0

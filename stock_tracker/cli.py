@@ -61,6 +61,7 @@ from .store import Database
 from shared.market import market_close as market_close_from_series
 from shared.market import market_history as market_history_from_series
 from shared.market import market_range as market_range_from_series
+from shared.exit_codes import exit_code_for_status
 from shared.run_ledger import RunLedger
 from shared.trading_calendar import (
     is_holiday_weekday,
@@ -302,6 +303,19 @@ def _macro_context(client: HttpClient, config: dict) -> tuple[dict, str]:
     return snapshot, build_macro_section(snapshot)
 
 
+def _replay_note(database: Database, run_date_text: str, kinds: tuple[tuple[str, str], ...]) -> str:
+    """Banner text when a replay has to fall back to live data."""
+    missing = [
+        label for kind, label in kinds
+        if database.get_artifact(run_date_text, kind) is None
+    ]
+    if not missing:
+        return ""
+    return (
+        f"> **本报告含实时回退数据（{'、'.join(missing)}）**："
+        f"{run_date_text} 未落盘对应快照，重跑可能得到不同结论。\n"
+    )
+
 def _index_series(client: HttpClient) -> dict[str, list[dict]]:
     """Snapshot ~120 trading days of index bars, so a run can be replayed."""
     series: dict[str, list[dict]] = {}
@@ -329,6 +343,7 @@ def _market_history_for(
         if rows:
             print(f"市场区间使用落盘指数快照（{run_date_text}）")
             return rows
+    print("⚠️ 未找到落盘指数快照，使用实时行情（不可复现）")
     return fetch_market_history(client, count=count)
 
 
@@ -345,6 +360,7 @@ def _market_range_for(
         if rows:
             print(f"市场区间使用落盘指数快照（{run_date_text}）")
             return rows
+    print("⚠️ 未找到落盘指数快照，使用实时区间行情（不可复现）")
     return fetch_market_history_range(client, start_date, end_date)
 
 
@@ -363,6 +379,7 @@ def _resolve_macro(
             print(f"宏观使用落盘快照（{run_date_text}）")
             macro_snapshot = cached
     if macro_snapshot is None:
+        print("⚠️ 未找到落盘宏观快照，使用实时数据（不可复现）")
         return _macro_context(client, config)
     if macro_section is None:
         macro_section = build_macro_section(macro_snapshot) if macro_snapshot else ""
@@ -681,6 +698,13 @@ def _generate_review_if_due(
         learning_section=learning_section,
         ai_section=ai_section,
     )
+    note = _replay_note(
+        database,
+        run_date_text,
+        (("index_history", "指数历史"), ("macro", "宏观/新闻")),
+    )
+    if note:
+        content = content.replace("\n## 一、", "\n" + note + "\n## 一、", 1)
     path = _save_review(BASE_DIR / config["report_dir"], run_date_text, content)
     summary = summary_text_review(run_date_text, enriched, alerts, str(path))
     database.save_review(run_date_text, report_start, run_date_text, summary, str(path))
@@ -793,6 +817,13 @@ def _generate_summary_if_due(
         learning_section=learning_section,
         ai_section=ai_section,
     )
+    note = _replay_note(
+        database,
+        report_date_text,
+        (("index_history", "指数历史"), ("macro", "宏观/新闻")),
+    )
+    if note:
+        content = content.replace("\n## 一、", "\n" + note + "\n## 一、", 1)
     path = _save_summary(
         BASE_DIR / config["report_dir"], kind, report_date_text, content
     )
@@ -1323,7 +1354,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         print(f"\n有 {len(errors)} 只股票失败：")
         for error in errors:
             print(f"  - {error}")
-    return 0 if rows else 1
+    return exit_code_for_status(status)
 
 
 def cmd_review(args: argparse.Namespace) -> int:
