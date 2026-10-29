@@ -670,6 +670,10 @@ def _evidence_table(rows: list[dict]) -> str:
     ]
     for row in rows:
         ev = row.get("evidence") or {}
+        # build_evidence() nests the five sub-scores under "parts"; older rows
+        # (and the stock module) keep them flat. Support both, otherwise every
+        # sub-score column renders "—" while the total looks fine.
+        parts = ev.get("parts") or ev
         grade = ev.get("grade", "—")
         read = {
             "A": "多因子一致，但仍可能亏损",
@@ -679,9 +683,9 @@ def _evidence_table(rows: list[dict]) -> str:
         }.get(grade, "—")
         lines.append(
             f"| {_cell(row.get('name'))} | {_cell(row.get('code'))} | "
-            f"{fmt_num(ev.get('quality'), 1)} | {fmt_num(ev.get('trend'), 1)} | "
-            f"{fmt_num(ev.get('position'), 1)} | {fmt_num(ev.get('macro'), 1)} | "
-            f"{fmt_num(ev.get('risk'), 1)} | {fmt_num(ev.get('score'), 1)} | "
+            f"{fmt_num(parts.get('quality'), 1)} | {fmt_num(parts.get('trend'), 1)} | "
+            f"{fmt_num(parts.get('position'), 1)} | {fmt_num(parts.get('macro'), 1)} | "
+            f"{fmt_num(parts.get('risk'), 1)} | {fmt_num(ev.get('score'), 1)} | "
             f"{grade} | {read} |"
         )
     return "\n".join(lines) + "\n"

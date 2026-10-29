@@ -84,6 +84,7 @@ from .report import (
 from .store import Database
 
 from shared.run_ledger import RunLedger
+from shared.formula import FORMULA_VERSION
 from shared.trading_calendar import (
     is_holiday_weekday,
     last_trading_day_of_month,
@@ -91,6 +92,22 @@ from shared.trading_calendar import (
 
 LOG = logging.getLogger(__name__)
 LAUNCHD_LABEL = "com.t8alex.fundtracker"
+
+# Exit codes: launchd/watchdog must be able to tell "all good" from "ran but
+# degraded" without parsing Chinese log text.
+EXIT_OK = 0
+EXIT_FAILED = 1
+EXIT_PARTIAL = 2
+EXIT_STALE = 3
+
+
+def exit_code_for_status(status: str) -> int:
+    return {
+        "ok": EXIT_OK,
+        "partial": EXIT_PARTIAL,
+        "stale": EXIT_STALE,
+        "failed": EXIT_FAILED,
+    }.get(str(status or ""), EXIT_FAILED)
 # launchd does not reliably pass non-ASCII paths on macOS. Keep a small ASCII
 # wrapper in a non-protected directory; it cd's into the real project and runs
 # Python directly (nesting another zsh script breaks on the Chinese path).
@@ -1165,6 +1182,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             except FetchError:
                 profile = {}
             metrics = build_metrics(fund_data, profile, config, today=run_date)
+            metrics["formula_version"] = FORMULA_VERSION
             if fund.get("category"):
                 metrics["category"] = normalize_category(fund["category"]) or fund["category"]
             if fund.get("role"):
@@ -1213,7 +1231,9 @@ def cmd_run(args: argparse.Namespace) -> int:
                 metrics["announcements_error"] = str(exc)
                 database.save_source_health("fund_announcements", run_date_text, code, False, str(exc)[:200])
 
-            previous = database.get_previous_snapshot(code, run_date_text)
+            previous = database.get_previous_snapshot(
+                code, run_date_text, formula_version=FORMULA_VERSION
+            )
             fund_alerts = _build_alerts(metrics, previous, config)
             fund_alerts.extend(_announcement_alerts(metrics))
             metrics["alert_count"] = len(fund_alerts)
@@ -1241,6 +1261,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         market = fetch_market(client)
         market_success = True
         database.save_source_health("market_index", run_date_text, None, True)
+        database.save_artifact(run_date_text, "market", market)
     except FetchError as exc:
         market = []
         database.save_source_health("market_index", run_date_text, None, False, str(exc)[:200])
@@ -1257,6 +1278,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             )
             macro_section = build_macro_section(macro_snapshot, config)
             database.save_source_health("macro", run_date_text, None, True)
+            database.save_artifact(run_date_text, "macro", macro_snapshot)
         except Exception as exc:  # noqa: BLE001
             print(f"宏观数据获取失败，日报继续：{exc}")
             database.save_source_health("macro", run_date_text, None, False, str(exc)[:200])
@@ -1321,10 +1343,14 @@ def cmd_run(args: argparse.Namespace) -> int:
     sent = False
     stale = data_quality.get("level") == "stale"
     if stale:
-        summary = "【数据不完整·本期不推送正常结论】" + summary
+        summary = "【数据不完整·本期结论仅供参考】" + summary
         print(freshness_banner(data_quality))
-    if not args.no_notify and not stale:
-        if full_report_mode == "all":
+    if not args.no_notify:
+        if stale:
+            # Silence is the worst failure mode: push the short warning instead
+            # of skipping the notification entirely.
+            sent = notify(config, "基金跟踪日报·数据不完整", summary)
+        elif full_report_mode == "all":
             sent = notify_report(config, "基金跟踪日报", summary, report)
         else:
             sent = notify(config, "基金跟踪日报", summary)
@@ -1407,15 +1433,13 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     print()
     print(summary)
-    (Path(config["report_dir"]) / "latest.md").write_text(report, encoding="utf-8")
-
     print(f"报告：{report_path}")
     print(f"CSV：{BASE_DIR / config['report_dir'] / (run_date_text + '.csv')}")
     if errors:
         print(f"\n有 {len(errors)} 只基金失败：")
         for error in errors:
             print(f"  - {error}")
-    return 0 if rows else 1
+    return exit_code_for_status(status)
 
 
 def cmd_report(args: argparse.Namespace) -> int:
@@ -1431,28 +1455,42 @@ def cmd_report(args: argparse.Namespace) -> int:
     holdings = attach_holdings(rows, load_holdings(config))
     alerts = database.get_alerts(run_date_text)
     client = _client(config)
-    market_success = False
-    try:
-        market = fetch_market(client)
-        market_success = True
-        database.save_source_health("market_index", run_date_text, None, True)
-    except FetchError as exc:
-        market = []
-        database.save_source_health("market_index", run_date_text, None, False, str(exc)[:200])
+    # Rebuilding a past report must reuse what that day actually saw, otherwise
+    # the same date yields different conclusions every time it is re-run.
+    cached_market = database.get_artifact(run_date_text, "market")
+    if cached_market is not None:
+        market = cached_market
+        print(f"使用 {run_date_text} 落盘的行情快照（可复现）。")
+    else:
+        try:
+            market = fetch_market(client)
+            database.save_source_health("market_index", run_date_text, None, True)
+        except FetchError as exc:
+            market = []
+            database.save_source_health("market_index", run_date_text, None, False, str(exc)[:200])
     macro_snapshot: dict = {}
     macro_section = ""
     if config.get("macro", {}).get("enabled", True):
-        try:
-            macro_snapshot = fetch_macro_snapshot(
-                client,
-                news_limit=int(config.get("macro", {}).get("news_limit", 8)),
-                include_news=bool(
-                    config.get("macro", {}).get("news_enabled", True)
-                ),
-            )
-            macro_section = build_macro_section(macro_snapshot, config)
-        except Exception as exc:  # noqa: BLE001
-            print(f"宏观数据获取失败，报告继续：{exc}")
+        cached_macro = database.get_artifact(run_date_text, "macro")
+        if cached_macro:
+            macro_snapshot = cached_macro
+            print(f"使用 {run_date_text} 落盘的宏观快照（可复现）。")
+        else:
+            try:
+                macro_snapshot = fetch_macro_snapshot(
+                    client,
+                    news_limit=int(config.get("macro", {}).get("news_limit", 8)),
+                    include_news=bool(
+                        config.get("macro", {}).get("news_enabled", True)
+                    ),
+                )
+            except Exception as exc:  # noqa: BLE001
+                print(f"宏观数据获取失败，报告继续：{exc}")
+        if macro_snapshot:
+            try:
+                macro_section = build_macro_section(macro_snapshot, config)
+            except Exception as exc:  # noqa: BLE001
+                print(f"宏观板块渲染失败，报告继续：{exc}")
     alerts_by_code: dict[str, list[dict]] = {}
     for alert in alerts:
         alerts_by_code.setdefault(alert.get("code", ""), []).append(alert)

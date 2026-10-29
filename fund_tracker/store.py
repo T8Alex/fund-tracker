@@ -5,6 +5,7 @@ import json
 import sqlite3
 from pathlib import Path
 
+from shared.formula import FORMULA_VERSION
 from shared.trading_calendar import count_distinct_dates_since
 
 from .learning import ensure_learning_schema
@@ -33,6 +34,7 @@ CREATE TABLE IF NOT EXISTS snapshots (
     run_date TEXT NOT NULL,
     metrics TEXT NOT NULL,
     score REAL,
+    formula_version TEXT,
     PRIMARY KEY (code, run_date)
 );
 CREATE TABLE IF NOT EXISTS alerts (
@@ -71,12 +73,80 @@ CREATE TABLE IF NOT EXISTS summary_reports (
 CREATE TABLE IF NOT EXISTS source_health (
     source TEXT NOT NULL,
     run_date TEXT NOT NULL,
-    fund_code TEXT,
+    fund_code TEXT NOT NULL DEFAULT '',
     success INTEGER NOT NULL DEFAULT 1,
     errors TEXT,
     PRIMARY KEY (source, run_date, fund_code)
 );
+CREATE TABLE IF NOT EXISTS run_artifacts (
+    run_date TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (run_date, kind)
+);
 """
+
+
+def _columns(connection: sqlite3.Connection, table: str) -> dict[str, sqlite3.Row]:
+    rows = connection.execute(f"PRAGMA table_info({table})").fetchall()
+    return {row["name"]: row for row in rows}
+
+
+def _ensure_column(
+    connection: sqlite3.Connection,
+    table: str,
+    column: str,
+    ddl: str,
+) -> bool:
+    """Add a column when missing. Returns True when the column was added."""
+    if column in _columns(connection, table):
+        return False
+    connection.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+    return True
+
+
+def _migrate_source_health(connection: sqlite3.Connection) -> None:
+    """Rebuild source_health so `fund_code` is NOT NULL.
+
+    SQLite treats NULLs as distinct inside a PRIMARY KEY, so the old
+    `fund_code TEXT` + `ON CONFLICT(source, run_date, fund_code)` never
+    conflicted for market/macro rows: every re-run appended another row and
+    the report's "数据完整性" table counted one success per run.
+    """
+    info = _columns(connection, "source_health")
+    if not info:
+        return
+    fund_code = info.get("fund_code")
+    if fund_code is not None and fund_code["notnull"]:
+        return
+    connection.execute(
+        """
+        CREATE TABLE source_health_rebuild (
+            source TEXT NOT NULL,
+            run_date TEXT NOT NULL,
+            fund_code TEXT NOT NULL DEFAULT '',
+            success INTEGER NOT NULL DEFAULT 1,
+            errors TEXT,
+            PRIMARY KEY (source, run_date, fund_code)
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO source_health_rebuild(source, run_date, fund_code, success, errors)
+        SELECT source,
+               run_date,
+               COALESCE(fund_code, '') AS fc,
+               MAX(success),
+               MAX(errors)
+        FROM source_health
+        GROUP BY source, run_date, fc
+        """
+    )
+    connection.execute("DROP TABLE source_health")
+    connection.execute("ALTER TABLE source_health_rebuild RENAME TO source_health")
+
 
 
 class Database:
@@ -92,6 +162,20 @@ class Database:
     def init(self) -> None:
         with self._connect() as connection:
             connection.executescript(SCHEMA)
+            _migrate_source_health(connection)
+            added = _ensure_column(
+                connection,
+                "snapshots",
+                "formula_version",
+                "formula_version TEXT",
+            )
+            if added:
+                # Existing snapshots were produced by the current formula;
+                # backfill so same-version comparisons keep working.
+                connection.execute(
+                    "UPDATE snapshots SET formula_version=? WHERE formula_version IS NULL",
+                    (FORMULA_VERSION,),
+                )
             ensure_learning_schema(connection)
 
     def upsert_fund(
@@ -161,21 +245,29 @@ class Database:
                 rows,
             )
 
-    def save_snapshot(self, code: str, run_date: str, metrics: dict) -> None:
+    def save_snapshot(
+        self,
+        code: str,
+        run_date: str,
+        metrics: dict,
+        formula_version: str | None = None,
+    ) -> None:
         with self._connect() as connection:
             connection.execute(
                 """
-                INSERT INTO snapshots(code, run_date, metrics, score)
-                VALUES(?, ?, ?, ?)
+                INSERT INTO snapshots(code, run_date, metrics, score, formula_version)
+                VALUES(?, ?, ?, ?, ?)
                 ON CONFLICT(code, run_date) DO UPDATE SET
                     metrics=excluded.metrics,
-                    score=excluded.score
+                    score=excluded.score,
+                    formula_version=excluded.formula_version
                 """,
                 (
                     code,
                     run_date,
                     json.dumps(metrics, ensure_ascii=False),
                     metrics.get("score"),
+                    formula_version or metrics.get("formula_version") or FORMULA_VERSION,
                 ),
             )
 
@@ -187,15 +279,30 @@ class Database:
             ).fetchone()
         return json.loads(row["metrics"]) if row else None
 
-    def get_previous_snapshot(self, code: str, before_date: str) -> dict | None:
+    def get_previous_snapshot(
+        self,
+        code: str,
+        before_date: str,
+        formula_version: str | None = None,
+    ) -> dict | None:
+        """Latest earlier snapshot, optionally restricted to one formula version.
+
+        Comparing scores produced by different formulas would fake a
+        "score dropped N points" alert, so callers pass the current version.
+        """
+        query = """
+            SELECT metrics FROM snapshots
+            WHERE code=? AND run_date < ?{version_clause}
+            ORDER BY run_date DESC LIMIT 1
+        """
+        params: list = [code, before_date]
+        version_clause = ""
+        if formula_version:
+            version_clause = " AND COALESCE(formula_version, ?) = ?"
+            params.extend([formula_version, formula_version])
         with self._connect() as connection:
             row = connection.execute(
-                """
-                SELECT metrics FROM snapshots
-                WHERE code=? AND run_date < ?
-                ORDER BY run_date DESC LIMIT 1
-                """,
-                (code, before_date),
+                query.format(version_clause=version_clause), params
             ).fetchone()
         return json.loads(row["metrics"]) if row else None
 
@@ -235,6 +342,37 @@ class Database:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def save_artifact(self, run_date: str, kind: str, payload) -> None:
+        """Persist a run-scoped JSON payload (market / macro snapshot).
+
+        Reports must be reproducible: rebuilding a past report has to reuse the
+        market and macro data seen on that day, not today's live values.
+        """
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO run_artifacts(run_date, kind, payload, created_at)
+                VALUES(?, ?, ?, datetime('now', 'localtime'))
+                ON CONFLICT(run_date, kind) DO UPDATE SET
+                    payload=excluded.payload,
+                    created_at=excluded.created_at
+                """,
+                (run_date, kind, json.dumps(payload, ensure_ascii=False)),
+            )
+
+    def get_artifact(self, run_date: str, kind: str):
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT payload FROM run_artifacts WHERE run_date=? AND kind=?",
+                (run_date, kind),
+            ).fetchone()
+        if not row:
+            return None
+        try:
+            return json.loads(row["payload"])
+        except ValueError:
+            return None
+
     def save_run(self, run_date: str, status: str, summary: str) -> None:
         with self._connect() as connection:
             connection.execute(
@@ -259,7 +397,7 @@ class Database:
                     success=excluded.success,
                     errors=excluded.errors
                 """,
-                (source, run_date, fund_code, 1 if success else 0, errors),
+                (source, run_date, fund_code or "", 1 if success else 0, errors),
             )
 
     def get_source_health(self, run_date: str) -> list[dict]:
