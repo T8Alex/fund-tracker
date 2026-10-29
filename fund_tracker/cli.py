@@ -1150,6 +1150,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             net_series = parse_net_worth(fund_data.get("net_worth"))
             ac_series = parse_ac_worth(fund_data.get("ac_worth"))
             database.save_nav(code, net_series, ac_series)
+            database.save_source_health("fund_nav", run_date_text, code, True)
 
             extras_cache = float(config.get("extras_cache_hours", 24))
             try:
@@ -1169,8 +1170,10 @@ def cmd_run(args: argparse.Namespace) -> int:
                     if quote and quote.get("pct") is not None:
                         item["pct"] = quote["pct"]
                 metrics["holdings"] = holdings
+                database.save_source_health("fund_holdings", run_date_text, code, True)
             except Exception as exc:  # noqa: BLE001
                 metrics["holdings_error"] = str(exc)
+                database.save_source_health("fund_holdings", run_date_text, code, False, str(exc)[:200])
 
             try:
                 announcements = fetch_fund_announcements(
@@ -1180,8 +1183,10 @@ def cmd_run(args: argparse.Namespace) -> int:
                     cache_hours=extras_cache,
                 )
                 metrics["announcements"] = _select_announcements(announcements)
+                database.save_source_health("fund_announcements", run_date_text, code, True)
             except Exception as exc:  # noqa: BLE001
                 metrics["announcements_error"] = str(exc)
+                database.save_source_health("fund_announcements", run_date_text, code, False, str(exc)[:200])
 
             previous = database.get_previous_snapshot(code, run_date_text)
             fund_alerts = _build_alerts(metrics, previous, config)
@@ -1206,7 +1211,14 @@ def cmd_run(args: argparse.Namespace) -> int:
             print(f"  失败：{exc}")
         time.sleep(0.2)
 
-    market = fetch_market(client)
+    market_success = False
+    try:
+        market = fetch_market(client)
+        market_success = True
+        database.save_source_health("market_index", run_date_text, None, True)
+    except FetchError as exc:
+        market = []
+        database.save_source_health("market_index", run_date_text, None, False, str(exc)[:200])
     macro_snapshot: dict = {}
     macro_section = ""
     if config.get("macro", {}).get("enabled", True):
@@ -1219,8 +1231,10 @@ def cmd_run(args: argparse.Namespace) -> int:
                 ),
             )
             macro_section = build_macro_section(macro_snapshot, config)
+            database.save_source_health("macro", run_date_text, None, True)
         except Exception as exc:  # noqa: BLE001
             print(f"宏观数据获取失败，日报继续：{exc}")
+            database.save_source_health("macro", run_date_text, None, False, str(exc)[:200])
     alerts_by_code: dict[str, list[dict]] = {}
     for alert in all_alerts:
         alerts_by_code.setdefault(alert.get("code", ""), []).append(alert)
@@ -1382,7 +1396,14 @@ def cmd_report(args: argparse.Namespace) -> int:
     holdings = attach_holdings(rows, load_holdings(config))
     alerts = database.get_alerts(run_date_text)
     client = _client(config)
-    market = fetch_market(client)
+    market_success = False
+    try:
+        market = fetch_market(client)
+        market_success = True
+        database.save_source_health("market_index", run_date_text, None, True)
+    except FetchError as exc:
+        market = []
+        database.save_source_health("market_index", run_date_text, None, False, str(exc)[:200])
     macro_snapshot: dict = {}
     macro_section = ""
     if config.get("macro", {}).get("enabled", True):

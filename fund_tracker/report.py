@@ -1049,6 +1049,45 @@ def _freshness_warnings(
     return warnings
 
 
+def _data_completeness_section(run_date_text: str, database) -> str | None:
+    """Return a data completeness section for the report, or None if all good."""
+    if database is None:
+        return None
+    try:
+        rows = database.get_source_health(run_date_text)
+        if not rows:
+            return None
+        from collections import Counter
+        by_source: dict[str, dict] = {}
+        for row in rows:
+            src = row["source"]
+            if src not in by_source:
+                by_source[src] = {"success": 0, "fail": 0}
+            if row["success"]:
+                by_source[src]["success"] += 1
+            else:
+                by_source[src]["fail"] += 1
+        lines = ["> **数据完整性**", ""]
+        lines.append("| 来源 | 成功 | 失败 | 状态 |")
+        lines.append("|---|---:|---:|---|")
+        status_map = {"market_index": "大盘指数", "macro": "宏观/新闻", "fund_nav": "基金净值", "fund_holdings": "持仓穿透", "fund_announcements": "公告"}
+        for src in ("market_index", "macro", "fund_nav", "fund_holdings", "fund_announcements"):
+            s = by_source.get(src, {"success": 0, "fail": 0})
+            total = s["success"] + s["fail"]
+            label = status_map.get(src, src)
+            if s["fail"] > 0:
+                status = f"\u26a0\ufe0f {s['fail']} \u5931\u8d25"
+            elif total > 0:
+                status = "\u2705 \u6b63\u5e38"
+            else:
+                continue
+            lines.append(f"| {label} | {s['success']} | {s['fail']} | {status} |")
+        lines.append("")
+        return "\n".join(lines)
+    except Exception:
+        return None
+
+
 def _rules_section(heading: str = "## 九、规则说明") -> str:
     return "\n".join(
         [

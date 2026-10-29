@@ -68,6 +68,14 @@ CREATE TABLE IF NOT EXISTS summary_reports (
     content_path TEXT,
     PRIMARY KEY (kind, period_key)
 );
+CREATE TABLE IF NOT EXISTS source_health (
+    source TEXT NOT NULL,
+    run_date TEXT NOT NULL,
+    fund_code TEXT,
+    success INTEGER NOT NULL DEFAULT 1,
+    errors TEXT,
+    PRIMARY KEY (source, run_date, fund_code)
+);
 """
 
 
@@ -240,6 +248,28 @@ class Database:
                 """,
                 (run_date, status, summary),
             )
+
+    def save_source_health(self, source: str, run_date: str, fund_code: str | None, success: bool, errors: str | None = None) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO source_health(source, run_date, fund_code, success, errors)
+                VALUES(?, ?, ?, ?, ?)
+                ON CONFLICT(source, run_date, fund_code) DO UPDATE SET
+                    success=excluded.success,
+                    errors=excluded.errors
+                """,
+                (source, run_date, fund_code, 1 if success else 0, errors),
+            )
+
+    def get_source_health(self, run_date: str) -> list[dict]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT source, fund_code, success, errors, COUNT(*) OVER (PARTITION BY source) AS total"
+                " FROM source_health WHERE run_date=? ORDER BY source, fund_code",
+                (run_date,),
+            ).fetchall()
+        return [dict(r) for r in rows]
 
     def get_run(self, run_date: str) -> dict | None:
         with self._connect() as connection:
