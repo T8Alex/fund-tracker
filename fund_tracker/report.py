@@ -791,6 +791,12 @@ def _holdings_table(rows: list[dict], holdings: dict | None) -> str:
             "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
         ]
     )
+    _inv = float(holdings.get("invested_ratio") or 1.0)
+    if _inv < 1.0:
+        lines.append(
+            f"- 注：目标权重已按现金比例归一化（投资占比 {_weight_text(_inv)}，"
+            f"现金 {_weight_text(1.0 - _inv)}），与 actual_weight 口径一致。"
+        )
     for row in held:
         lines.append(
             f"| {_cell(row.get('name'))} | {_cell(row.get('code'))} | "
@@ -1407,9 +1413,10 @@ def generate_summary_report(
             f"（组合 {weighted:+.2f}% vs 沪深300 {csi_window:+.2f}%）。"
         )
     if holdings and holdings.get("loaded"):
+        _inv = float(holdings.get("invested_ratio") or 1.0)
         lines.append(
             f"- 实际持仓已接入：总资产 {fmt_money(holdings.get('total_value'))}，"
-            f"现金 {_weight_text(holdings.get('cash_weight'))}。"
+            f"现金 {_weight_text(holdings.get('cash_weight'))}（投资占比 {_weight_text(_inv)}）。"
         )
     else:
         lines.append(

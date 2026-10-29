@@ -131,6 +131,15 @@ def attach_holdings(rows: list[dict], holdings: dict) -> dict:
             }
         )
 
+    # invested_ratio: fraction of total portfolio that is invested (vs cash).
+    # Used to bring target_weight (stored as % of invested capital) onto the
+    # same scale as actual_weight (% of total portfolio including cash).
+    market_total = sum(
+        (float(item.get("market_value") or item.get("current_value") or 0.0))
+        for item in holdings.get("items") or []
+    )
+    invested_ratio = market_total / total_value if total_value > 0 else 1.0
+
     for item in attached:
         row = item["row"]
         row["market_value"] = item["market_value"]
@@ -142,6 +151,10 @@ def attach_holdings(rows: list[dict], holdings: dict) -> dict:
         row["actual_weight"] = (
             item["market_value"] / total_value if total_value > 0 else 0.0
         )
+        # Align target_weight to the same denominator (total portfolio incl. cash)
+        tw = row.get("target_weight")
+        if tw is not None:
+            row["target_weight"] = tw * invested_ratio
 
     loaded = bool(holdings.get("loaded"))
     for row in rows:
@@ -150,6 +163,10 @@ def attach_holdings(rows: list[dict], holdings: dict) -> dict:
         row.setdefault("current_value", 0.0 if loaded else None)
         row.setdefault("pnl", None)
         row.setdefault("pnl_pct", None)
+        # Also align target_weight for rows without holdings data
+        tw = row.get("target_weight")
+        if tw is not None and not loaded:
+            row["target_weight"] = tw * invested_ratio
 
     return {
         **holdings,
@@ -159,6 +176,7 @@ def attach_holdings(rows: list[dict], holdings: dict) -> dict:
             if total_value > 0
             else None
         ),
+        "invested_ratio": invested_ratio,
         "attached_count": len(attached),
         "unmatched": unmatched,
     }
