@@ -1354,6 +1354,8 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     print()
     print(summary)
+    (Path(config["report_dir"]) / "latest.md").write_text(report, encoding="utf-8")
+
     print(f"报告：{report_path}")
     print(f"CSV：{BASE_DIR / config['report_dir'] / (run_date_text + '.csv')}")
     if errors:

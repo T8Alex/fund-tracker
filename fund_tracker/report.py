@@ -1523,6 +1523,7 @@ def save_report(report_dir, run_date_text, report):
     path = report_dir / f"{run_date_text}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(report, encoding="utf-8")
+    (report_dir / "latest.md").write_text(report, encoding="utf-8")
     return path
 
 
@@ -1530,6 +1531,7 @@ def save_review_report(report_dir, run_date_text, content):
     path = report_dir / f"review-{run_date_text}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+    (report_dir / "review-latest.md").write_text(content, encoding="utf-8")
     return path
 
 
