@@ -320,3 +320,23 @@ commit `0d33901`，已完成：
 
 测试：214 个用例全通过（Python 3.12 / 3.9 各跑一遍），新增 9 个用例覆盖上述修复。
 端到端验证（临时副本，未碰生产库）：`run --force` → 落盘 624B/4551B 两件产物 → 再次 `report` 打印“使用落盘快照”，数据完整性显示 1/0。
+
+## 股票侧对齐：报告可复现（2026-10-29 晚）
+
+基金侧 P0 #3 只修了基金；股票侧的同类问题更重——它连“最近 N 日指数”都是现抓的，所以一份 10-29 的推荐报告在 11-05 重跑会写成 11-05 的市场。
+
+| # | 问题 | 证据 | 修法 |
+|---|---|---|---|
+| 1 | `cmd_run` 用 `fetch_market` 抓**实时**指数，与 `--date` 无关 | 补跑历史日期时，报告市场段写的是今天的点位 | `run_artifacts` 表 + `save_artifact/get_artifact`；只有 `run_date == today` 才落 `market`，补跑历史日期改用当日指数收盘重建 |
+| 2 | `_generate_review_if_due` 用 `fetch_market_history(count)`（取最新 N 根） | 不受 `--date` 约束，历史重跑必然错 | 落盘 `index_history`（4 指数 × 240 根），按 `as_of` 切片派生区间；缺失才联网 |
+| 3 | `_generate_summary_if_due` 用 `fetch_market_history_range`（现抓 120 天再切） | 依赖“上游恰好还有那段数据”，时间一长就漂 | 同上，从落盘序列切片 |
+| 4 | `review` 单独跑会重新抓宏观（含新闻） | 同一天的宏观结论可能变 | `_resolve_macro` 优先读落盘 `macro`，缺失才联网 |
+
+新增 `shared/market.py`：`market_history` / `market_range` / `market_close` 三个纯函数，把“落盘序列 → 报告市场段”的变换与抓取解耦，可单测。
+
+复核结论（更正上一轮的第 2 条）：**股票侧证据面板没有 bug**。上一轮说“evidence 结构是扁平的”是在解释基金侧读 `parts` 失败的原因，不是股票侧的缺陷——股票 `build_evidence` 本来就返回扁平结构，`_evidence_table` 读 `ev['quality']` 正确，`review-2026-10-29.md` 里 72.1 / 90.0 / 38.6 都是真值。因此本轮不改证据渲染。
+
+测试：226 通过（3.12 与系统 python3 各一遍），新增 12 个用例覆盖三个纯函数与三条 artifact 优先路径。
+端到端（/tmp 副本，未碰生产库）：`run --date 2026-10-29` 落盘 market 624B / index_history 102KB / macro 4.5KB；`review` 与 `weekly` 均打印“使用落盘…”；`run --date 2026-10-27` 的 market 未落盘，报告市场段为 10-27 收盘（沪深300 4049.55），不是今天的 4041.84。
+
+遗留：`index_history` 每天约 100KB，一年约 25MB，需要和缓存、台账一起纳入清理排程（Phase 1 待办）。
