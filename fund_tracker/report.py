@@ -230,12 +230,50 @@ def _recommendation_bucket(row: dict, action: str, evidence: dict | None) -> str
     return "暂不动作"
 
 
+def _funding_source_note(row: dict, holdings: dict | None) -> str:
+    """Explain where the money comes from for a new position."""
+    if holdings is None:
+        return ""
+    target = float(row.get("target_weight") or 0)
+    actual = float(row.get("actual_weight") or 0)
+    if actual > 0:
+        return ""
+    if target <= 0:
+        return ""
+    total_value = float(holdings.get("total_value") or 0)
+    cash = float(holdings.get("cash") or 0)
+    needed = target * total_value
+    if needed <= 0 or total_value <= 0:
+        return ""
+    if cash >= needed * 1.05:
+        return f"从现金 {cash:,.0f} 元建仓，需 {needed:,.0f} 元。"
+    shortfall = needed - cash
+    # Find over-allocated funds to sell
+    over_allocated: list[tuple[str, float]] = []
+    for item in (holdings.get("items") or []):
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("code", ""))
+        mv = float(item.get("market_value") or 0)
+        tw = float(item.get("target_weight") or 0)
+        if mv > 0 and tw > 0 and mv > tw * total_value * 1.03:
+            excess_mv = mv - tw * total_value
+            name = item.get("name", code)
+            over_allocated.append((name, excess_mv))
+    over_allocated.sort(key=lambda x: -x[1])
+    if over_allocated:
+        sources = ", ".join(f"{n}（可释 {v:,.0f} 元）" for n, v in over_allocated[:2])
+        return f"现金不足，需从 {sources} 释放资金。"
+    return f"现金不足，需释放资金后再建仓。"
+
+
 def _review_action(
     row: dict,
     alerts: list[dict],
     evidence: dict | None = None,
     *,
     rebalance_band_pp: int = 3,
+    holdings: dict | None = None,
 ) -> tuple[str, str]:
     target = float(row.get("target_weight") or 0)
     actual = row.get("actual_weight")
@@ -333,9 +371,10 @@ def _review_action(
     if target <= 0:
         # Pullback + strong score → 小仓试探
         if ret_period is not None and ret_period <= -3 and score is not None and score >= 85:
+            funding = _funding_source_note(row, holdings)
             return (
                 "小仓试探",
-                f"{period_text}回撤 {fmt_pct(ret_period)}，证据分 {ev_score if ev_score is not None else '—'}；试探建仓",
+                f"{period_text}回撤 {fmt_pct(ret_period)}，证据分 {ev_score if ev_score is not None else '—'}；试探建仓；{funding}".rstrip("；"),
             )
         # No pullback + strong evidence → wait for pullback
         if score is not None and score >= 85 and (ev_score is None or ev_score >= 75):
@@ -356,15 +395,17 @@ def _review_action(
     has_position = actual is not None and float(actual) > 0
     if score >= 80 and (ev_score is None or ev_score >= 75):
         if in_zone:
+            funding = _funding_source_note(row, holdings)
             return (
                 "分批买入/持有",
                 f"评分 {score:.1f}、证据分 {ev_score if ev_score is not None else '—'}；"
-                "净值在参考区间，分 2–3 批",
+                f"净值在参考区间，分 2–3 批；{funding}".rstrip("；"),
             )
         if not has_position:
+            funding = _funding_source_note(row, holdings)
             return (
                 "分批买入/持有",
-                f"评分 {score:.1f}、证据分 {ev_score if ev_score is not None else '—'}；未持有，按目标建仓",
+                f"评分 {score:.1f}、证据分 {ev_score if ev_score is not None else '—'}；未持有，按目标建仓；{funding}".rstrip("；"),
             )
         if ret_period is not None and ret_period <= -3:
             return (
@@ -406,6 +447,7 @@ def _enrich_recommendations(
     evidence: dict | None,
     *,
     rebalance_band_pp: int = 3,
+    holdings: dict | None = None,
 ) -> list[dict]:
     enriched: list[dict] = []
     for row in rows:
@@ -416,6 +458,7 @@ def _enrich_recommendations(
             alerts_by_code.get(str(item.get("code") or ""), []),
             item_evidence,
             rebalance_band_pp=rebalance_band_pp,
+            holdings=holdings,
         )
         item["evidence"] = item_evidence
         item["review_action"] = action
