@@ -860,7 +860,7 @@ def _generate_summary_if_due(
     for alert in alerts:
         alerts_by_code.setdefault(alert.get("code", ""), []).append(alert)
     evidence = build_evidence(rows, macro_snapshot, alerts_by_code)
-    enriched = _enrich_recommendations(rows, alerts_by_code, evidence)
+    enriched = _enrich_recommendations(rows, alerts_by_code, evidence, rebalance_band_pp=config.get("rebalance_band_pp", 3))
     if kind == "weekly":
         ai_section = _ai_weekly_section(
             database,
@@ -983,7 +983,7 @@ def _generate_review_if_due(
     for alert in alerts:
         alerts_by_code.setdefault(alert.get("code", ""), []).append(alert)
     evidence = build_evidence(rows, macro_snapshot, alerts_by_code)
-    enriched = _enrich_recommendations(rows, alerts_by_code, evidence)
+    enriched = _enrich_recommendations(rows, alerts_by_code, evidence, rebalance_band_pp=config.get("rebalance_band_pp", 3))
     _record_learning(database, run_date_text, enriched)
     ai_section = _ai_daily_section(
         database,
@@ -1322,7 +1322,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         BASE_DIR / config["report_dir"] / f"{run_date_text}.csv",
         run_date_text,
     )
-    enriched_rows = _enrich_recommendations(rows, alerts_by_code, evidence)
+    enriched_rows = _enrich_recommendations(rows, alerts_by_code, evidence, rebalance_band_pp=config.get("rebalance_band_pp", 3))
     summary = summary_text(
         run_date_text,
         enriched_rows,

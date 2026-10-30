@@ -158,11 +158,21 @@ commit `0d33901`，已完成：
 - 月报锚点：由“最后一个工作日”改为“最后一个交易日”。
 - 测试：205 passing。
 
+
+### Phase 3 启动记录（2026-10-30）
+
+- 再平衡容忍带：`rebalance_band_pp` 默认 3pp，改为绝对偏离判断，避免小噪音；浮点比较用 `round(x, 4)`。
+- 代码变更：`fund_tracker/report.py`（`_review_action`/`_enrich_recommendations`）、`fund_tracker/config.py`、`fund_tracker/cli.py`、`stock_tracker/cli.py`。
+- 新增测试 4 个（`tests/test_review_action.py`），全量 239 passing。
+
 ## Phase 3：决策质量与风险（第 4–6 周，11/17–12/07）
 
 目标：让“四组建议”更像决策支持，而不是每天都想调仓。
 
-- [ ] 再平衡容忍带：
+- [x] 再平衡容忍带（2026-10-30）：
+  - 配置 `rebalance_band_pp`（默认 3pp），超过绝对偏离才进「可以调整」
+  - 避免小偏差制造噪音（例：6% vs 5% = 1pp，默认不触发）
+  - 测试验证浮点精度边界
   - 配置 `rebalance_band_pp`（默认 3pp）和相对阈值（默认 25%）
   - 只有超出容忍带才进入“可以调整”
   - 分 2–3 次执行，不一次清仓

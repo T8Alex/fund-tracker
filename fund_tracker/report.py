@@ -234,6 +234,8 @@ def _review_action(
     row: dict,
     alerts: list[dict],
     evidence: dict | None = None,
+    *,
+    rebalance_band_pp: int = 3,
 ) -> tuple[str, str]:
     target = float(row.get("target_weight") or 0)
     actual = row.get("actual_weight")
@@ -258,12 +260,16 @@ def _review_action(
     if actual is not None and float(actual) > 0:
         if target <= 0:
             return "剔除", "目标 0%；按纪律清仓/换股，不补仓"
-        # 再平衡：实际超配明显高于目标
-        if target > 0 and float(actual) > target * 1.25:
-            return (
-                "再平衡",
-                f"实际权重 {_weight_text(actual)} 高于目标 {_weight_text(target)} 的 1.25 倍；先再平衡到目标",
-            )
+        # 再平衡：绝对偏离超过容忍带才触发（默认 3 个百分点）
+        # 放在 score 检查之前，避免高分票因为严重超配还被判"持有"
+        if target > 0:
+            deviation = float(actual) - target
+            band = rebalance_band_pp / 100.0
+            if round(deviation, 4) >= band:
+                return (
+                    "再平衡",
+                    f"实际权重 {_weight_text(actual)} 高于目标 {_weight_text(target)}，偏离 {deviation*100:+.1f}pp；先再平衡到目标",
+                )
         if severe_alerts:
             return "出货/复核", f"重大预警：{severe_text}"
         if score is None:
@@ -287,10 +293,11 @@ def _review_action(
                 "低于防守线，先减 1/3 或暂停加仓",
             )
         excess = float(actual) - target
-        if excess > max(0.02, target * 0.25):
+        band = rebalance_band_pp / 100.0
+        if round(excess, 4) >= band:
             return (
                 "减仓/复核",
-                f"实际权重 {_weight_text(actual)} 高于目标 {_weight_text(target)}；先再平衡",
+                f"实际权重 {_weight_text(actual)} 高于目标 {_weight_text(target)}，偏离 {excess*100:.1f}pp；先再平衡",
             )
         if (
             target > 0
@@ -397,6 +404,8 @@ def _enrich_recommendations(
     rows: list[dict],
     alerts_by_code: dict[str, list[dict]],
     evidence: dict | None,
+    *,
+    rebalance_band_pp: int = 3,
 ) -> list[dict]:
     enriched: list[dict] = []
     for row in rows:
@@ -406,6 +415,7 @@ def _enrich_recommendations(
             item,
             alerts_by_code.get(str(item.get("code") or ""), []),
             item_evidence,
+            rebalance_band_pp=rebalance_band_pp,
         )
         item["evidence"] = item_evidence
         item["review_action"] = action

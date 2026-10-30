@@ -18,6 +18,7 @@ DEFAULTS: dict[str, Any] = {
     "profile_cache_hours": 168,
     "extras_cache_hours": 24,
     "stale_days": 5,
+    "rebalance_band_pp": 3,  # Only flag adjustments when deviation exceeds this many pp
     "freshness": {
         "warn_days": 5,
         "hard_days": 7,
